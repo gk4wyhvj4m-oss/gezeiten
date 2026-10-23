@@ -750,7 +750,9 @@ function heroCard(i, c, t) {
   for (let k = 0; k < N; k++) { const d = 1 + k / S; H.push(hormones(d, o, L)); phs.push(mkInfo(Math.round(d), L, i.menEnd, o, false, '', '').phase); }
   const W = 360, TOP = 14, BOT = 128, X = k => 8 + k / (N - 1) * (W - 16), Y = v => BOT - v / 1.06 * (BOT - TOP);
   const HSER = [['fsh', '#9AAAB8', 'FSH', 1.8], ['lh', '#C47A6C', 'LH', 1.8], ['p', '#5E5B3F', 'Progesteron', 2.4], ['e', '#D98426', 'Östrogen', 2.4]];
-  const path = key => { const P = H.map((x, k) => [X(k), Y(x[key])]); let d = `M-20,${P[0][1].toFixed(1)}L${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`; for (let k = 0; k < P.length - 1; k++) { const p0 = P[k - 1] || P[k], p1 = P[k], p2 = P[k + 1], p3 = P[k + 2] || p2; d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`; } return d + `L${W + 20},${P[P.length - 1][1].toFixed(1)}`; };
+  // Kurven über den Rand hinaus weiterrechnen, damit sie an beiden Enden weich auslaufen statt abzuknicken
+  const E = S * 4, HX = []; for (let k = -E; k < N + E; k++) HX.push([X(k), hormones(1 + k / S, o, L)]);
+  const path = key => { const P = HX.map(([x, h]) => [x, Y(h[key])]); let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`; for (let k = 0; k < P.length - 1; k++) { const p0 = P[k - 1] || P[k], p1 = P[k], p2 = P[k + 1], p3 = P[k + 2] || p2; d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`; } return d; };
   const to = clamp(i.cd - 1, 0, L - 1) * S;
   heroData = { H, N, X, Y, to, keys: HSER.map(x => x[0]) };
   const first = heroAnimDone !== t;
@@ -2282,6 +2284,30 @@ const GSHOP = [
   ['well', 'Brunnen', 60, 'g'], ['greenhouse', 'Gewächshaus', 80, 'g'], ['house', 'Entenhaus', 120, 'g']
 ];
 const GCAT = [['p', 'Pflanzen'], ['d', 'Deko'], ['g', 'Größeres']];
+// Tage bis zur vollen Blüte (Pflanzen wachsen nach dem Setzen erst heran)
+const GROW = { clover: 1, mushroom: 1, daisy: 2, dandelion: 2, tulip: 3, lily: 3, lavender: 4, bush: 4, pumpkin: 5, sunflower: 5, rosebush: 6, appletree: 10 };
+function growStage(it) { const days = GROW[it.t]; if (!days || !it.p) return 'bloom'; const f = (Date.now() - it.p) / 864e5 / days; return f >= 1 ? 'bloom' : f >= .55 ? 'bud' : f >= .22 ? 'sprout' : 'seed'; }
+function growLeft(it) { const days = GROW[it.t]; if (!days || !it.p) return 0; return Math.max(0, days - (Date.now() - it.p) / 864e5); }
+// Zwischenstufen: Saat, Keimling, Knospe
+function gYoung(type, x, y, stage, sea) {
+  const st = '#7E9460', leaf = '#93AE74';
+  if (type === 'lily') return stage === 'seed' ? `<circle cx="${x}" cy="${y}" r="1.6" fill="#7E9C5A"/>` : `<path d="M${x - (stage === 'bud' ? 7 : 4)} ${y}a${stage === 'bud' ? 7 : 4} ${stage === 'bud' ? 2.8 : 1.7} 0 1 0 ${stage === 'bud' ? 14 : 8} 0a${stage === 'bud' ? 7 : 4} ${stage === 'bud' ? 2.8 : 1.7} 0 1 0-${stage === 'bud' ? 14 : 8} 0z" fill="#8FAE6E"/>${stage === 'bud' ? `<ellipse cx="${x - 1.6}" cy="${y - 1.6}" rx="1.4" ry="2" fill="#B9CB98"/>` : ''}`;
+  const mound = `<ellipse cx="${x}" cy="${y - .6}" rx="6" ry="2" fill="#A3835E"/><ellipse cx="${x - 1}" cy="${y - 1.4}" rx="3.4" ry=".9" fill="#B6966E"/>`;
+  if (stage === 'seed') return mound + `<circle cx="${x + .6}" cy="${y - 2}" r=".9" fill="#8FAE6E"/>`;
+  if (stage === 'sprout') return mound + `<path d="M${x} ${y - 1}v-5" stroke="${st}" stroke-width="1.1"/><path d="M${x} ${y - 5}q-3.6-2.2-4.6 .4q2.6 1.4 4.6-.4zM${x} ${y - 5.4}q3.4-2.6 4.8-.2q-2.6 1.6-4.8.2z" fill="${leaf}"/>`;
+  // Knospe
+  if (type === 'daisy') return `<path d="M${x} ${y}v-9" stroke="${st}" stroke-width="1.3"/><path d="M${x} ${y - 4}q3-2 4.4 0q-2.4 1.6-4.4 0z" fill="${leaf}"/><ellipse cx="${x}" cy="${y - 10.4}" rx="1.8" ry="2.4" fill="#B7C79A"/><ellipse cx="${x}" cy="${y - 11.6}" rx="1" ry="1.2" fill="#F4EEE3"/>`;
+  if (type === 'tulip') return `<path d="M${x} ${y}v-12" stroke="${st}" stroke-width="1.5"/><path d="M${x} ${y - 4}q5-3 7 0q-4 3-7 0z" fill="#93A874"/><path d="M${x - 2.6} ${y - 12}q-.2-5.4 2.6-6.6q2.8 1.2 2.6 6.6q-2.6 1.6-5.2 0z" fill="#A9BB88"/><path d="M${x - 1.2} ${y - 17.4}q1.2-1.4 2.4 0" stroke="#D9897A" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+  if (type === 'sunflower') return `<path d="M${x} ${y}v-20" stroke="${st}" stroke-width="1.7"/><path d="M${x} ${y - 8}q6-4 9 0q-5 4-9 0zM${x} ${y - 13}q-5-3.6-8 0q4 3.4 8 0z" fill="#93A874"/><circle cx="${x}" cy="${y - 22}" r="3" fill="#8FA86C"/><path d="M${x - 3} ${y - 22}l-1.4-1.6M${x + 3} ${y - 22}l1.4-1.6M${x} ${y - 25}v-1.6" stroke="#7E9460" stroke-width="1" stroke-linecap="round"/>`;
+  if (type === 'lavender') { let s = ''; for (let k = -1; k <= 1; k++) { const tx = x + k * 2.6, ty = y - 11 - (1 - Math.abs(k)) * 2; s += `<path d="M${x + k * .6} ${y}L${tx} ${ty}" stroke="#8C9C78" stroke-width="1"/><ellipse cx="${tx}" cy="${ty}" rx="1.1" ry="2.4" fill="#A6AE90"/>`; } return s; }
+  if (type === 'dandelion') { let s = `<path d="M${x} ${y}q-1.4-7 0-13" stroke="${st}" stroke-width="1.2" fill="none"/><path d="M${x} ${y - 1}q-5-1-6-4q4 0 6 4zM${x} ${y - 1}q5-1 6-4q-4 0-6 4z" fill="${leaf}"/>`; for (let a = 0; a < 10; a++) { const an = a * Math.PI / 5; s += `<ellipse cx="${(x + Math.cos(an) * 2.4).toFixed(1)}" cy="${(y - 13 + Math.sin(an) * 2.4).toFixed(1)}" rx="1.6" ry=".8" fill="#E3B54C" transform="rotate(${(an * 180 / Math.PI).toFixed(0)} ${(x + Math.cos(an) * 2.4).toFixed(1)} ${(y - 13 + Math.sin(an) * 2.4).toFixed(1)})"/>`; } return s + `<circle cx="${x}" cy="${y - 13}" r="1.6" fill="#D9A93F"/>`; }
+  if (type === 'clover') return `<path d="M${x} ${y}v-5" stroke="${st}" stroke-width="1.1"/><circle cx="${x - 2}" cy="${y - 6}" r="2.1" fill="#8FAE6E"/><circle cx="${x + 2}" cy="${y - 6}" r="2.1" fill="#8FAE6E"/>`;
+  if (type === 'mushroom') return `<rect x="${x - 1.2}" y="${y - 4}" width="2.4" height="4" rx="1" fill="#F1E8D6"/><path d="M${x - 4} ${y - 3.5}q4-6 8 0z" fill="#B65A4B"/>`;
+  if (type === 'pumpkin') return `<path d="M${x - 8} ${y - 1}q6-4 12-1" stroke="${st}" stroke-width="1.1" fill="none"/><path d="M${x - 6} ${y - 2}q3-4 6-1q-3 3-6 1zM${x + 2} ${y - 3}q3-3.6 6-.6q-3 2.6-6 .6z" fill="${leaf}"/><ellipse cx="${x + 1}" cy="${y - 2.6}" rx="3" ry="2.4" fill="#A9BB72"/>`;
+  if (type === 'bush' || type === 'rosebush') return `<circle cx="${x - 4}" cy="${y - 4}" r="4.4" fill="#86A562"/><circle cx="${x + 4}" cy="${y - 4}" r="4.2" fill="#7E9C5A"/><circle cx="${x}" cy="${y - 7.6}" r="4.8" fill="#93AF6E"/>${type === 'rosebush' ? `<circle cx="${x - 3}" cy="${y - 8}" r="1" fill="#B9CB98"/><circle cx="${x + 3}" cy="${y - 5}" r="1" fill="#B9CB98"/>` : ''}`;
+  if (type === 'appletree') { const cr = { fol: '#A7C283', ovu: '#86A562', lut: '#C99A55' }[sea] || '#93AF6E'; return `<path d="M${x} ${y}V${y - 18}M${x} ${y - 12}l-4-4" stroke="#8B7358" stroke-width="2" stroke-linecap="round"/>${sea === 'men' ? '' : `<circle cx="${x - 3}" cy="${y - 20}" r="5" fill="${cr}"/><circle cx="${x + 3}" cy="${y - 21}" r="5" fill="${cr}"/><circle cx="${x}" cy="${y - 25}" r="5.4" fill="${cr}"/>`}`; }
+  return mound;
+}
 const GFLAT = ['lily', 'blanket'];
 // Größen im Verhältnis zur Ente (die Ente ist etwa so groß wie eine Tulpe)
 const GSCALE = { clover: .6, daisy: .6, mushroom: .6, dandelion: .7, tulip: .8, lavender: .8, pumpkin: .9, lily: .9, bush: 1.2, rosebush: 1.3, sunflower: 1.5, appletree: 1.5,
@@ -2326,9 +2352,10 @@ function gSeasonKey() { const i = info(todayISO()); return i ? i.phase : 'fol'; 
 const inPond = (x, y) => ((x - POND.x) / POND.rx) ** 2 + ((y - POND.y) / POND.ry) ** 2 < 1;
 
 // ---------- Gegenstände
-function gItem(type, x, y, night, idx, sea, raw) {
+function gItem(type, x, y, night, idx, sea, raw, stage) {
   const st = '#7E9460', winter = sea === 'men';
   const tag = idx != null ? ` data-gi="${idx}" data-y="${y}" class="gitem"` : '';
+  if (stage && stage !== 'bloom') { const s0 = gYoung(type, x, y, stage, sea) + (idx != null ? `<circle cx="${x}" cy="${y - 5}" r="10" fill="transparent"/>` : ''), k0 = raw || stage !== 'bud' ? 1 : (GSCALE[type] || 1); return k0 === 1 ? `<g${tag}>${s0}</g>` : `<g${tag}><g transform="translate(${x} ${y}) scale(${k0}) translate(${-x} ${-y})">${s0}</g></g>`; }
   const snow = (x1, y1, x2, y2) => `<path d="M${x1} ${y1}L${(x1 + x2) / 2} ${y2}L${x2} ${y1}q-${((x2 - x1) / 8).toFixed(1)} 2-${((x2 - x1) / 4).toFixed(1)} 0t-${((x2 - x1) / 4).toFixed(1)} 0t-${((x2 - x1) / 4).toFixed(1)} 0t-${((x2 - x1) / 4).toFixed(1)} 0z" fill="#FBF8F2"/>`;
   let s = '';
   if (type === 'clover') s += `<path d="M${x} ${y}v-7" stroke="${st}" stroke-width="1.2"/><circle cx="${x - 2.4}" cy="${y - 8}" r="2.6" fill="#8FAE6E"/><circle cx="${x + 2.4}" cy="${y - 8}" r="2.6" fill="#8FAE6E"/><circle cx="${x}" cy="${y - 11}" r="2.6" fill="#9DBB7A"/>`;
@@ -2355,7 +2382,7 @@ function gItem(type, x, y, night, idx, sea, raw) {
       if (sea === 'lut') s += `<circle cx="${x + 9}" cy="${y - 1.5}" r="2.3" fill="#C2574A"/>`;
     }
   }
-  if (type === 'fence') { s += `<rect x="${x - 17}" y="${y - 11}" width="34" height="2" fill="#C9B38E"/><rect x="${x - 17}" y="${y - 5}" width="34" height="2" fill="#C9B38E"/>`; [-14, 0, 14].forEach(dx => { const px = x + dx; s += `<path d="M${px - 2} ${y}V${y - 12}L${px} ${y - 15}L${px + 2} ${y - 12}V${y}z" fill="#DCCBAA" stroke="#A08A68" stroke-width=".7"/>`; }); }
+  if (type === 'fence') { s += `<rect x="${x - 17}" y="${y - 11}" width="34" height="2" fill="#C9B38E"/><rect x="${x - 17}" y="${y - 5}" width="34" height="2" fill="#C9B38E"/>`; [-14, 0, 14].forEach(dx => { const px = x + dx; s += `<path d="M${px - 2} ${y}V${y - 12}L${px} ${y - 15}L${px + 2} ${y - 12}V${y}z" fill="#D9C6A0"/><path d="M${px + .6} ${y}V${y - 13.6}L${px + 2} ${y - 12}V${y}z" fill="#C4AE85"/>`; }); }
   if (type === 'pinwheel') { const cy = y - 24; s += `<path d="M${x} ${y}V${cy}" stroke="#A08A68" stroke-width="1.4"/><g>${[0, 90, 180, 270].map((r, k) => `<path d="M${x} ${cy}l0-8l6 5z" fill="${k % 2 ? '#E9DCC6' : '#D9897A'}" transform="rotate(${r} ${x} ${cy})"/>`).join('')}<animateTransform attributeName="transform" type="rotate" from="0 ${x} ${cy}" to="360 ${x} ${cy}" dur="3s" repeatCount="indefinite"/></g><circle cx="${x}" cy="${cy}" r="1.3" fill="#7A5B3A"/>`; }
   if (type === 'lantern') s += `${night ? `<circle cx="${x}" cy="${y - 26}" r="16" fill="url(#gglow)"/>` : ''}<path d="M${x} ${y}v-22" stroke="#5E5B3F" stroke-width="1.6"/><rect x="${x - 4}" y="${y - 31}" width="8" height="9" rx="1.6" fill="${night ? '#F6D58E' : '#EFE6D2'}" stroke="#5E5B3F" stroke-width="1.2"/><path d="M${x - 5} ${y - 31}h10l-5-3.5z" fill="#5E5B3F"/>`;
   if (type === 'birdbath') s += `<rect x="${x - 6}" y="${y - 2}" width="12" height="2" rx="1" fill="#BDB6A6"/><path d="M${x - 4} ${y - 1}L${x - 2.5} ${y - 13}H${x + 2.5}L${x + 4} ${y - 1}z" fill="#CFC8B8"/><path d="M${x - 11} ${y - 14}q11 8 22 0z" fill="#CFC8B8"/><ellipse cx="${x}" cy="${y - 14}" rx="11" ry="2.4" fill="#BDB6A6"/><ellipse cx="${x}" cy="${y - 14}" rx="9" ry="1.6" fill="${winter ? '#E4ECEA' : '#A9C4C2'}"/>`;
@@ -2363,7 +2390,7 @@ function gItem(type, x, y, night, idx, sea, raw) {
   if (type === 'bench') s += `<rect x="${x - 15}" y="${y - 12}" width="30" height="3" rx="1" fill="#A07B55"/><rect x="${x - 15}" y="${y - 17}" width="30" height="3" rx="1" fill="#B08A62"/><path d="M${x - 12} ${y}v-9M${x + 12} ${y}v-9" stroke="#7A5B3A" stroke-width="2"/>`;
   if (type === 'birdhouse') s += `<path d="M${x} ${y}v-20" stroke="#7A5B3A" stroke-width="2"/><rect x="${x - 7}" y="${y - 32}" width="14" height="12" rx="1.5" fill="#D9C4A0"/><path d="M${x - 9} ${y - 31}l9-7 9 7z" fill="#B65A4B"/>${winter ? snow(x - 6, y - 33.5, x + 6, y - 38) : ''}<circle cx="${x}" cy="${y - 26}" r="2.2" fill="#5E5B3F"/>`;
   if (type === 'well') s += `<path d="M${x - 12} ${y - 10}V${y - 34}M${x + 12} ${y - 10}V${y - 34}M${x - 12} ${y - 33}H${x + 12}" stroke="#7A5B3A" stroke-width="2.2"/><path d="M${x} ${y - 33}V${y - 22}" stroke="#7A5B3A" stroke-width=".8"/><path d="M${x - 3} ${y - 22}h6l-1 5h-4z" fill="#8B7358"/><path d="M${x - 17} ${y - 32}L${x} ${y - 43}L${x + 17} ${y - 32}z" fill="#A07B55"/>${winter ? snow(x - 10, y - 36.5, x + 10, y - 43) : ''}<rect x="${x - 14}" y="${y - 14}" width="28" height="14" rx="2.5" fill="#C2BBAB"/><path d="M${x - 14} ${y - 7}H${x + 14}M${x - 6} ${y - 14}v7M${x + 6} ${y - 14}v7M${x} ${y - 7}v7M${x - 10} ${y - 7}v7M${x + 10} ${y - 7}v7" stroke="#A9A294" stroke-width=".8"/><ellipse cx="${x}" cy="${y - 14}" rx="14" ry="3" fill="#B2AB9B"/><ellipse cx="${x}" cy="${y - 14}" rx="11" ry="2" fill="#5E6F70"/>`;
-  if (type === 'greenhouse') s += `<rect x="${x - 19}" y="${y - 4}" width="38" height="4" rx="1" fill="#CFC8B8"/><circle cx="${x - 11}" cy="${y - 8}" r="4" fill="#93AF6E"/><circle cx="${x}" cy="${y - 9}" r="4.6" fill="#86A562"/><circle cx="${x + 11}" cy="${y - 8}" r="4" fill="#93AF6E"/><circle cx="${x + 2}" cy="${y - 12}" r="1.4" fill="#C2574A"/><path d="M${x - 18} ${y - 4}V${y - 24}L${x} ${y - 36}L${x + 18} ${y - 24}V${y - 4}z" fill="${night ? '#7F8F8C' : '#DCE9E4'}" opacity=".55" stroke="#8FA39A" stroke-width="1.2"/><path d="M${x - 6} ${y - 4}V${y - 32}M${x + 6} ${y - 4}V${y - 32}M${x - 18} ${y - 14}H${x + 18}" stroke="#8FA39A" stroke-width=".8"/>${winter ? `<path d="M${x - 18} ${y - 24}L${x} ${y - 36}L${x + 18} ${y - 24}L${x + 14} ${y - 25}L${x} ${y - 33}L${x - 14} ${y - 25}z" fill="#FBF8F2"/>` : `<path d="M${x - 14} ${y - 21}l5-4" stroke="#FFFFFF" stroke-width="1.4" opacity=".8" stroke-linecap="round"/>`}`;
+  if (type === 'greenhouse') s += `<rect x="${x - 19}" y="${y - 4}" width="38" height="4" rx="1" fill="#CFC8B8"/><circle cx="${x - 11}" cy="${y - 8}" r="4" fill="#93AF6E"/><circle cx="${x}" cy="${y - 9}" r="4.6" fill="#86A562"/><circle cx="${x + 11}" cy="${y - 8}" r="4" fill="#93AF6E"/><circle cx="${x + 2}" cy="${y - 12}" r="1.4" fill="#C2574A"/><path d="M${x - 18} ${y - 4}V${y - 24}L${x} ${y - 36}L${x + 18} ${y - 24}V${y - 4}z" fill="${night ? '#7F8F8C' : '#DCE9E4'}" opacity=".55" stroke="#8FA39A" stroke-width="1.2"/><path d="M${x - 6} ${y - 4}V${y - 32}M${x + 6} ${y - 4}V${y - 32}M${x - 18} ${y - 14}H${x + 18}" stroke="#8FA39A" stroke-width=".8"/>${winter ? `<path d="M${x - 18} ${y - 24}L${x} ${y - 36}L${x + 18} ${y - 24}L${x + 14} ${y - 25}L${x} ${y - 33}L${x - 14} ${y - 25}z" fill="#FBF8F2"/>` : ''}`;
   if (type === 'house') {
     // Entenhaus auf Stelzen mit Rampe, die Öffnung ist groß genug, dass man die Ente drinnen schlafen sieht
     const wood = '#D9BF94', plank = '#C4A57A', dark = '#B08A62', post = '#8B6B4A';
@@ -2435,9 +2462,9 @@ function duckInner(mode, mood, wearIn, swim, happy, pal, Q) {
   if (Q.quack) s += `<path d="M${hx + 17.5} ${hy - 2.6}q1.6 2.6 0 5.2M${hx + 20.5} ${hy - 4.6}q2.8 4.6 0 9.2" stroke="#B9AE98" stroke-width="1" fill="none" stroke-linecap="round"/>`;
   // Augen
   if (mode !== 'sleep') {
-    if (W.eyes === 'glasses') s += `<path d="M${ex - 3} ${ey - .6}L${hx - 7.6} ${ey - 1.4}" stroke="${ink}" stroke-width="1.1" stroke-linecap="round"/><path d="M${ex - 3.4} ${ey - 2.2}h7q.6 0 .5 .8l-.6 2.6q-.5 1.9-2.6 1.9h-1.8q-2.2 0-2.7-2l-.4-2.6q-.1-.7.6-.7z" fill="#34352E" stroke="${ink}" stroke-width=".7"/><path d="M${ex - 1.8} ${ey - 1.2}l1.6 2.2M${ex + .2} ${ey - 1.3}l1 1.4" stroke="#FFFFFF" stroke-width=".55" opacity=".55" stroke-linecap="round"/><path d="M${ex + 3.6} ${ey - 2}l1.6-.4" stroke="${ink}" stroke-width=".9" stroke-linecap="round"/>`;
-    if (W.eyes === 'round') s += `<path d="M${ex - 3} ${ey}L${hx - 7.6} ${ey - 1}" stroke="#7A5B3A" stroke-width=".9" stroke-linecap="round"/><circle cx="${ex}" cy="${ey}" r="2.9" fill="#FFFFFF" fill-opacity=".22" stroke="#7A5B3A" stroke-width=".9"/><path d="M${ex + 2.9} ${ey - .3}l1.5-.5" stroke="#7A5B3A" stroke-width=".8" stroke-linecap="round"/>`;
-    if (W.eyes === 'heart') s += `<path d="M${ex - 3} ${ey - .4}L${hx - 7.6} ${ey - 1.2}" stroke="#B0605A" stroke-width=".9" stroke-linecap="round"/><path d="M${ex} ${ey + 2.8}c-2.8-1.9-3.9-3.3-3.9-4.8a1.95 1.95 0 0 1 3.9-.7a1.95 1.95 0 0 1 3.9 .7c0 1.5-1.1 2.9-3.9 4.8z" fill="#D9897A" stroke="#B0605A" stroke-width=".5"/><path d="M${ex - 1.9} ${ey - 1.4}l.9 1.2" stroke="#FFFFFF" stroke-width=".5" opacity=".6" stroke-linecap="round"/>`;
+    if (W.eyes === 'glasses') s += `<path d="M${ex - 3} ${ey - .6}L${hx - 7.6} ${ey - 1.4}" stroke="${ink}" stroke-width="1.1" stroke-linecap="round"/><path d="M${ex - 3.4} ${ey - 2.2}h7q.6 0 .5 .8l-.6 2.6q-.5 1.9-2.6 1.9h-1.8q-2.2 0-2.7-2l-.4-2.6q-.1-.7.6-.7z" fill="#34352E" stroke="${ink}" stroke-width=".7"/><path d="M${ex + 3.6} ${ey - 2}l1.6-.4" stroke="${ink}" stroke-width=".9" stroke-linecap="round"/>`;
+    if (W.eyes === 'round') s += `<path d="M${ex - 3} ${ey}L${hx - 7.6} ${ey - 1}" stroke="#7A5B3A" stroke-width=".9" stroke-linecap="round"/><circle cx="${ex}" cy="${ey}" r="2.9" fill="none" stroke="#7A5B3A" stroke-width=".9"/><path d="M${ex + 2.9} ${ey - .3}l1.5-.5" stroke="#7A5B3A" stroke-width=".8" stroke-linecap="round"/>`;
+    if (W.eyes === 'heart') s += `<path d="M${ex - 3} ${ey - .4}L${hx - 7.6} ${ey - 1.2}" stroke="#B0605A" stroke-width=".9" stroke-linecap="round"/><path d="M${ex} ${ey + 2.8}c-2.8-1.9-3.9-3.3-3.9-4.8a1.95 1.95 0 0 1 3.9-.7a1.95 1.95 0 0 1 3.9 .7c0 1.5-1.1 2.9-3.9 4.8z" fill="#D9897A" stroke="#B0605A" stroke-width=".5"/>`;
   }
   // Kopf
   const H = W.head;
@@ -2458,16 +2485,49 @@ function duckInner(mode, mood, wearIn, swim, happy, pal, Q) {
 function friendInner(t, mode) {
   if (t === 'rabbit') return `<ellipse cx="-5" cy="-.8" rx="4.6" ry="1.4" fill="#968670"/><ellipse cx="-2" cy="-7" rx="9" ry="6.4" fill="#A8977F"/><circle cx="-10.6" cy="-8.4" r="2.7" fill="#F1E8D6"/><ellipse cx="3.4" cy="-.9" rx="3" ry="1.1" fill="#968670"/><ellipse cx="3.4" cy="${mode === 'nibble' ? -16.6 : -20}" rx="1.7" ry="5.2" fill="#9A8A73" transform="rotate(-16 3.4 -20)"/><ellipse cx="6" cy="-12" rx="4.6" ry="4.2" fill="#A8977F"/><ellipse cx="5.4" cy="${mode === 'nibble' ? -17 : -20.4}" rx="1.8" ry="5.4" fill="#B5A58E" transform="rotate(10 5.4 -20.4)"/><ellipse cx="5.6" cy="${mode === 'nibble' ? -17 : -20.4}" rx=".7" ry="3.6" fill="#E2B7AE" transform="rotate(10 5.4 -20.4)"/><circle cx="8" cy="-12.8" r=".95" fill="#2B2A20"/><circle cx="10.5" cy="-11.2" r=".75" fill="#C98A7E"/>`;
   if (t === 'squirrel') return `<path d="M-4 -4C-14 -4-17 -14-13 -20.5C-10 -25.5-3 -23.5-5 -18.5C-7 -14-6 -9-2 -7z" fill="#A8603A"/><ellipse cx="1" cy="-6" rx="5.6" ry="4.6" fill="#B87045"/><ellipse cx="3.8" cy="-5" rx="2.4" ry="3" fill="#EAD9BE"/><ellipse cx="2" cy="-.8" rx="3" ry="1" fill="#A8603A"/><circle cx="6" cy="-11" r="3.5" fill="#B87045"/><path d="M4.4 -13.8l-.7-3.6l2.2 2.8z" fill="#A8603A"/><circle cx="7.3" cy="-11.6" r=".85" fill="#2B2A20"/><circle cx="9.4" cy="-10.5" r=".55" fill="#2B2A20"/>`;
-  if (t === 'snail') return `<ellipse cx="0" cy="-1.5" rx="10.5" ry="1.9" fill="#D8C3A0"/><path d="M6.5 -2q3.4-1 4.4-6" stroke="#D8C3A0" stroke-width="3.2" fill="none" stroke-linecap="round"/><path d="M10.6 -7.6l.4-4.2M11.2 -7.4l2.6-3.2" stroke="#C9B48F" stroke-width=".9" stroke-linecap="round"/><circle cx="11" cy="-12" r=".8" fill="#5E5B3F"/><circle cx="13.9" cy="-10.7" r=".8" fill="#5E5B3F"/><circle cx="-1" cy="-7.4" r="6.6" fill="#C9A27A"/><path d="M-1 -7.4m-3.8 0a3.8 3.8 0 1 1 3.8 3.8a2.3 2.3 0 1 1-2.1-2.8" stroke="#A47E56" stroke-width="1.1" fill="none"/>`;
-  if (t === 'turtle') return `<ellipse cx="0" cy="0" rx="13" ry="2.4" fill="#B8CFCB" opacity=".85"/><path d="M-9 0q9-12 18 0z" fill="#7E8C5E"/><path d="M-4.4 -6.4l1.4 6M4.4 -6.4l-1.4 6M-7.4 -3h14.8" stroke="#68754C" stroke-width=".8" fill="none"/><ellipse cx="11" cy="-2.2" rx="3.2" ry="2.3" fill="#8C9A6A"/><circle cx="12.2" cy="-2.9" r=".7" fill="#2B2A20"/>`;
-  if (t === 'ladybug') return `<ellipse cx="0" cy="-2.4" rx="3.4" ry="2.6" fill="#C2574A"/><circle cx="3.2" cy="-1.8" r="1.5" fill="#2B2A20"/><path d="M0 -5v5" stroke="#2B2A20" stroke-width=".45"/><circle cx="-1.6" cy="-3" r=".65" fill="#2B2A20"/><circle cx="1.4" cy="-1.4" r=".6" fill="#2B2A20"/><circle cx="-1.2" cy="-1.1" r=".5" fill="#2B2A20"/>${mode === 'fly' ? '<ellipse cx="-1" cy="-5.6" rx="3" ry="1.4" fill="#FFFFFF" opacity=".7"/>' : ''}`;
+  if (t === 'snail') {
+    // Gartenschnecke: Gehäuse als echte Spirale mit Band, Kopf mit Fühlern
+    const body = '#CDBFA4', bodyD = '#B8A98C';
+    let s = `<path d="M-12.6 -.2Q-11 -2.6 -6 -2.6H6.4Q9.2 -2.8 10.4 -6.6L11.4 -9" stroke="${body}" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M-12.4 0H8.6" stroke="${bodyD}" stroke-width="1" stroke-linecap="round"/>`;
+    s += `<path d="M11 -9.4l-.6-4.4M11.6 -9.2l2.2-3.6" stroke="${bodyD}" stroke-width=".9" stroke-linecap="round"/><circle cx="10.4" cy="-14" r=".85" fill="#4E4A36"/><circle cx="13.9" cy="-13" r=".85" fill="#4E4A36"/><path d="M12.4 -7.2l1.6-.6" stroke="${bodyD}" stroke-width=".7" stroke-linecap="round"/>`;
+    const cx = -1, cy = -8.6, R = 7.2;
+    s += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="#C79A66"/><circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#A97C4E" stroke-width=".8"/>`;
+    let sp = '', band = '';
+    for (let k = 0; k <= 64; k++) { const th = k / 64 * Math.PI * 5.2, r = .4 + th * (R - .9) / (Math.PI * 5.2), x = cx + Math.cos(th + 1.1) * r, y = cy + Math.sin(th + 1.1) * r * .96; sp += `${k ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)}`; if (th > Math.PI * 1.6) { const r2 = r - 1.05; band += `${band ? 'L' : 'M'}${(cx + Math.cos(th + 1.1) * r2).toFixed(2)} ${(cy + Math.sin(th + 1.1) * r2 * .96).toFixed(2)}`; } }
+    s += `<path d="${band}" stroke="#A97C4E" stroke-width="1.5" fill="none" stroke-linecap="round" opacity=".7"/><path d="${sp}" stroke="#7F5C38" stroke-width=".9" fill="none" stroke-linecap="round"/>`;
+    return s;
+  }
+  if (t === 'turtle') {
+    // Europäische Sumpfschildkröte, von der Seite: Panzer mit Schildern und gelben Sprenkeln
+    const skin = '#5F6448', shell = '#6B6646', dark = '#4F4B33', dot = '#D6BE72';
+    let s = `<path d="M-12 -3.4l-3.4 1.4l3.2.6z" fill="${skin}"/><ellipse cx="-7" cy="-1.4" rx="3.4" ry="1.7" fill="${skin}" transform="rotate(-12 -7 -1.4)"/><ellipse cx="7.4" cy="-1.4" rx="3.6" ry="1.7" fill="${skin}" transform="rotate(14 7.4 -1.4)"/>`;
+    s += `<path d="M9 -4.6q3.4-2.4 6-4.2" stroke="${skin}" stroke-width="3.6" stroke-linecap="round" fill="none"/><ellipse cx="16.4" cy="-9.4" rx="3.4" ry="2.5" fill="${skin}" transform="rotate(-14 16.4 -9.4)"/><circle cx="17.4" cy="-10.3" r=".85" fill="#2B2A20"/><circle cx="16" cy="-8.2" r=".45" fill="${dot}"/><circle cx="14.2" cy="-7.4" r=".45" fill="${dot}"/><path d="M18.4 -8.4q1 .2 1.4-.4" stroke="#2B2A20" stroke-width=".4" fill="none"/>`;
+    s += `<path d="M-12 -3Q-11.4 -12.6 0 -13.2Q11.4 -12.6 12 -3Z" fill="${shell}"/><path d="M-12.4 -2.4Q0 .2 12.4 -2.4L12 -4.2Q0 -1.8 -12 -4.2Z" fill="${dark}"/>`;
+    s += `<path d="M-3.6 -13l-1 4.2l-4.6 1.2M3.6 -13l1 4.2l4.6 1.2M-4.6 -8.8h9.2M-9.2 -7.6l-1.6 3.6M9.2 -7.6l1.6 3.6M-4.6 -8.8l-.6 4.8M4.6 -8.8l.6 4.8" stroke="${dark}" stroke-width=".7" fill="none" stroke-linejoin="round"/>`;
+    [[-7, -9.6], [-1, -11.2], [2.4, -6.6], [7.4, -9.2], [-6, -5.4], [-2.4, -6.4], [6.6, -5.2], [0, -10]].forEach(([x, y]) => { s += `<circle cx="${x}" cy="${y}" r=".5" fill="${dot}"/>`; });
+    if (mode !== 'bask') s += `<path d="M-15 -3.2Q0 -1 19 -4.4V2.6H-15Z" fill="#B3CCC8" opacity=".92"/><path d="M-14 -3q14 2 32-1.2" stroke="#E4EEEC" stroke-width=".8" fill="none"/>`;
+    return s;
+  }
+  if (t === 'ladybug') {
+    // Marienkäfer von der Seite: gewölbte rote Flügeldecken mit schwarzen Punkten
+    const fly = mode === 'fly';
+    let s = `<path d="M-2.8 -.2l-.9 1.1M0 -.2v1.2M2.6 -.2l.9 1.1" stroke="#2B2A20" stroke-width=".5" stroke-linecap="round"/>`;
+    if (fly) s += `<ellipse cx="-2.6" cy="-6.4" rx="3.6" ry="1.5" fill="#FFFFFF" opacity=".75" transform="rotate(-24 -2.6 -6.4)"/><ellipse cx="-1" cy="-6.8" rx="3.4" ry="1.3" fill="#FFFFFF" opacity=".6" transform="rotate(-8 -1 -6.8)"/>`;
+    s += `<circle cx="4.2" cy="-1.8" r="1.8" fill="#2B2A20"/><path d="M5.3 -3.3q1.2-1.3 2.4-1.4M5 -3.4q.8-1.5 1.6-2" stroke="#2B2A20" stroke-width=".35" fill="none" stroke-linecap="round"/>`;
+    s += `<g${fly ? ' transform="rotate(-16 -1 -1)"' : ''}><path d="M-4.6 -.4A4.6 4.4 0 0 1 4.6 -.4Z" fill="#C24A3A"/><path d="M-4.6 -.4A4.6 4.4 0 0 1 4.6 -.4" stroke="#9E3A2E" stroke-width=".4" fill="none"/>`;
+    s += `<path d="M-.6 -4.7Q-1 -2.4 -.4 -.4" stroke="#2B2A20" stroke-width=".45" fill="none"/>`;
+    [[-2.8, -2.6, .75], [1.6, -3.2, .7], [2.6, -1.4, .6], [-1.4, -1.4, .6], [-3.6, -1, .45]].forEach(([x, y, r]) => { s += `<circle cx="${x}" cy="${y}" r="${r}" fill="#2B2A20"/>`; });
+    s += `</g>`;
+    return s;
+  }
   return '';
 }
-const FSCALE = { rabbit: .78, squirrel: .7, snail: .5, turtle: .6, ladybug: .55, duck2: DUCK_K };
+const TLOG = { x: POND.x + 54, y: POND.y + 9 };
+const FSCALE = { rabbit: .78, squirrel: .7, snail: .5, turtle: .58, ladybug: .7, duck2: DUCK_K };
 function friendIcon(t) {
   if (t === 'duck2') return `<svg viewBox="-26 -50 52 54" style="width:44px;height:44px">${duckInner('stand', 3, null, false, false, DUCK2_PAL)}</svg>`;
-  const box = { rabbit: '-14 -27 28 28', squirrel: '-15 -26 26 27', snail: '-12 -15 27 16', turtle: '-14 -11 30 13', ladybug: '-6 -7 12 8' }[t];
-  return `<svg viewBox="${box}" style="width:44px;height:40px">${friendInner(t, 'sit')}</svg>`;
+  const box = { rabbit: '-14 -27 28 28', squirrel: '-15 -26 26 27', snail: '-14 -17 30 18', turtle: '-16 -15 37 17', ladybug: '-6 -7 15 9' }[t];
+  return `<svg viewBox="${box}" style="width:44px;height:40px">${friendInner(t, t === 'turtle' ? 'bask' : 'sit')}</svg>`;
 }
 // Wann ein Tier draußen ist (passend zu echtem Verhalten)
 function friendOut(t, tm, sea, wx) {
@@ -2556,17 +2616,17 @@ function gardenSVG(id, vbTop, vbX, vbW, vbHin) {
   s += `<path d="M96 430C108 380 150 350 198 318S236 252 240 230" stroke="${sea === 'men' ? '#F1EFE8' : sea === 'lut' ? '#E8DCBC' : '#E4E2C6'}" stroke-width="15" fill="none" stroke-linecap="round" opacity=".85"/>`;
   // Grashalme für Gemütlichkeit
   if (sea !== 'men') { const R = rng(12); let gp = ''; for (let k = 0; k < 70; k++) { const x = R() * 360, y = 168 + R() * 248; if (inPond(x, y + 4) || inPond(x, y - 4)) continue; gp += `M${x.toFixed(0)} ${y.toFixed(0)}l-1.4-4.4M${(x + 2).toFixed(0)} ${y.toFixed(0)}l.8-5M${(x + 3.6).toFixed(0)} ${y.toFixed(0)}l2-3.6`; } s += `<path d="${gp}" stroke="${sea === 'lut' ? '#C7B98E' : '#AFC48E'}" stroke-width="1" stroke-linecap="round" fill="none"/>`; }
-  s += `<ellipse cx="${POND.x}" cy="${POND.y}" rx="${POND.rx}" ry="${POND.ry}" fill="url(#gpond${id})"/><ellipse cx="${POND.x - 14}" cy="${POND.y - 7}" rx="22" ry="3" fill="#FFFFFF" opacity=".25"/>`;
+  s += `<ellipse cx="${POND.x}" cy="${POND.y}" rx="${POND.rx}" ry="${POND.ry}" fill="url(#gpond${id})"/>`;
   if (wet) for (let k = 0; k < 5; k++) s += `<ellipse class="gripple" style="animation-delay:${(k * .55).toFixed(2)}s" cx="${POND.x - 40 + k * 19}" cy="${POND.y - 6 + (k % 3) * 6}" rx="5" ry="1.6" fill="none" stroke="#E9F0EE" stroke-width=".8"/>`;
   const its = G.items.map((it, j) => ({ ...it, j })).sort((a, b) => a.y - b.y);
-  s += `<g class="gflat">${its.filter(it => GFLAT.includes(it.t)).map(it => gItem(it.t, it.x, it.y, night || dusk, it.j, sea)).join('')}</g>`;
+  s += `<g class="gflat">${its.filter(it => GFLAT.includes(it.t)).map(it => gItem(it.t, it.x, it.y, night || dusk, it.j, sea, false, growStage(it))).join('')}</g>`;
   const frog = wk >= 10 && sea !== 'men';
   if (frog) s += `<ellipse cx="${POND.x + 34}" cy="${POND.y + 5}" rx="7" ry="2.4" fill="#8FAE6E"/>`;
   // Teichschicht (Schildkröte)
   const fr = G.friends.filter(f => !G.paused.includes(f) && friendOut(f, tm, sea, wx));
-  s += `<g class="gpondl">${fr.includes('turtle') ? `<g class="gfr" data-f="turtle">${friendInner('turtle')}</g>` : ''}</g>`;
+  s += `<g class="gpondl">${fr.includes('turtle') ? `<g transform="translate(${TLOG.x} ${TLOG.y}) rotate(-7)"><rect x="-15" y="-4" width="30" height="7.4" rx="3.7" fill="#8B6B4A"/><path d="M-11 -1.2h12M-6 1.4h14" stroke="#76583D" stroke-width=".7" stroke-linecap="round"/><ellipse cx="15" cy="-.3" rx="2.3" ry="3.7" fill="#B9946A"/><ellipse cx="15" cy="-.3" rx="1.1" ry="1.9" fill="none" stroke="#9C7853" stroke-width=".5"/><path d="M-6 -4l-2.4-3.6" stroke="#8B6B4A" stroke-width="1.6" stroke-linecap="round"/></g><path d="M${TLOG.x - 18} ${TLOG.y + 2.6}q18 2.4 36 -3.4" stroke="#E4EEEC" stroke-width=".8" fill="none" opacity=".8"/><g class="gfr" data-f="turtle">${friendInner('turtle')}</g>` : ''}</g>`;
   // bewegliche und stehende Dinge, nach Tiefe sortiert
-  s += `<g class="gitems">${its.filter(it => !GFLAT.includes(it.t)).map(it => gItem(it.t, it.x, it.y, night || dusk, it.j, sea)).join('')}`;
+  s += `<g class="gitems">${its.filter(it => !GFLAT.includes(it.t)).map(it => gItem(it.t, it.x, it.y, night || dusk, it.j, sea, false, growStage(it))).join('')}`;
   fr.filter(f => !['turtle', 'ladybug'].includes(f)).forEach(f => { s += `<g class="gfr gmv" data-f="${f}"></g>`; });
   s += `<g class="gduck gmv"></g></g>`;
   // Besucher
@@ -2718,7 +2778,20 @@ function stepDuck(d, T, dt, night, locked, sleepAt, home) {
 function stepFriend(f, k, T, dt) {
   let st = gs.fr[f]; if (!st) { const [x, y] = gGroundSpot(f === 'squirrel' ? 30 : 40, f === 'squirrel' ? 200 : 330); st = gs.fr[f] = { x, y, tx: x, ty: y, mode: 'sit', until: T + 1, dir: 1, ph: 0, rot: 0 }; if (f === 'snail') { st.y = 392; st.x = 80; } }
   if (f === 'snail') { st.x += st.dir * 2.2 * dt; if (st.x > 330) st.dir = -1; if (st.x < 30) st.dir = 1; return { x: st.x, y: st.y, dir: st.dir, mode: 'sit', lift: 0 }; }
-  if (f === 'turtle') { st.ph += dt * .1; const x = POND.x + Math.cos(st.ph) * 36, y = POND.y + 3 + Math.sin(st.ph) * 9; return { x, y, dir: -Math.sin(st.ph) >= 0 ? 1 : -1, mode: 'sit', lift: 0 }; }
+  if (f === 'turtle') { // schwimmt im Teich und sonnt sich zwischendurch auf dem Baumstamm
+    const canBask = gTime() === 'day' && gWeather() !== 'rain', LP = [TLOG.x - 2, TLOG.y - 3.6];
+    const swimPos = ph => [POND.x + Math.cos(ph) * 34, POND.y + 3 + Math.sin(ph) * 8];
+    if (!st.tm) { st.tm = 'swim'; st.t0 = T - 20; st.ph = 0; }
+    if (st.tm === 'swim') { st.ph += dt * .1; if (canBask && T - st.t0 > 30) { st.tm = 'toLog'; st.t0 = T; st.from = swimPos(st.ph); } const [x, y] = swimPos(st.ph); return { x, y, dir: -Math.sin(st.ph) >= 0 ? 1 : -1, mode: 'swim', lift: 0 }; }
+    if (st.tm === 'toLog' || st.tm === 'toWater') {
+      const u = Math.min(1, (T - st.t0) / 4), A = st.tm === 'toLog' ? st.from : LP, B = st.tm === 'toLog' ? LP : swimPos(st.ph);
+      const x = A[0] + (B[0] - A[0]) * u, y = A[1] + (B[1] - A[1]) * u, m = st.tm === 'toLog' ? (u > .75 ? 'bask' : 'swim') : (u < .25 ? 'bask' : 'swim');
+      if (u >= 1) { st.tm = st.tm === 'toLog' ? 'bask' : 'swim'; st.t0 = T; }
+      return { x, y, dir: B[0] >= A[0] ? 1 : -1, mode: m, lift: 0 };
+    }
+    if (T - st.t0 > 25 || !canBask) { st.tm = 'toWater'; st.t0 = T; }
+    return { x: LP[0], y: LP[1], dir: -1, mode: 'bask', lift: 0 };
+  }
   if (f === 'ladybug') { const fly = (T % 9) < .8; return { x: +k.dataset.x + Math.sin(T * .7) * 2.4, y: +k.dataset.y - (fly ? Math.sin(((T % 9) / .8) * Math.PI) * 10 : 0), dir: Math.cos(T * .7) >= 0 ? 1 : -1, mode: fly ? 'fly' : 'sit', lift: 0 }; }
   if (f === 'duck2') return null;
   // Kaninchen und Eichhörnchen
@@ -2774,7 +2847,7 @@ function gLoop(now) {
       const f = k.dataset.f;
       if (f === 'duck2') { if (V2) paintDuck(k, d2, V2); return; }
       const p = frPos[f] || (frPos[f] = stepFriend(f, k, T, dt)); if (!p) return;
-      const mk = f + '|' + p.mode; if (k.dataset.k !== mk && f !== 'turtle') { k.innerHTML = `<g class="gfi">${friendInner(f, p.mode)}</g><ellipse class="gfhit" cx="0" cy="-6" rx="14" ry="12" fill="transparent"/>`; k.dataset.k = mk; }
+      const mk = f + '|' + p.mode; if (k.dataset.k !== mk) { k.innerHTML = `<g class="gfi">${friendInner(f, p.mode)}</g><ellipse class="gfhit" cx="0" cy="-6" rx="14" ry="12" fill="transparent"/>`; k.dataset.k = mk; }
       const sc = FSCALE[f], hh = gs.frHappy[f] && performance.now() < gs.frHappy[f] ? -Math.abs(Math.sin(T * 12)) * 3 : 0;
       k.setAttribute('transform', `translate(${p.x.toFixed(1)} ${(p.y - p.lift + hh).toFixed(1)}) rotate(${p.rot || 0}) scale(${p.dir * sc} ${sc})`);
       k.__y = p.ground != null ? p.ground : p.y;
@@ -2814,6 +2887,10 @@ function gHearts(x, y) {
     setTimeout(() => fx.querySelectorAll('.gheart').forEach(h => h.remove()), 1600);
   });
 }
+function gLabel(x, y, text) {
+  const w = Math.round(text.length * 4.9 + 20);
+  document.querySelectorAll('.gfx').forEach(fx => { fx.querySelectorAll('.glab').forEach(l => l.remove()); fx.insertAdjacentHTML('beforeend', `<g class="glab" transform="translate(${clamp(x, w / 2 + 4, 356 - w / 2)} ${y})"><rect x="${-w / 2}" y="-14" width="${w}" height="18" rx="9" fill="#FBF8F2" stroke="#E3DACA"/><text x="0" y="-2" text-anchor="middle" style="font-size:9px;fill:#5F5A4B">${text}</text></g>`); setTimeout(() => fx.querySelectorAll('.glab').forEach(l => l.remove()), 2200); });
+}
 function gPet() {
   const G = GD(), now = Date.now();
   if (gTime() === 'night') { gBubble('Pssst, sie schläft'); return; }
@@ -2841,7 +2918,7 @@ function gTap(svg, e) {
     const pond = inPond(p.x, p.y), wB = GBIG[it[0]] || 0;
     if (it[0] === 'lily' ? !pond : (pond || inPond(p.x - wB, p.y) || inPond(p.x + wB, p.y) || (it[0] === 'house' && (p.x + 46 > 360 || inPond(p.x + 44, p.y) || p.x < 26)) || p.y < 168 || p.y > 410)) { toast(it[0] === 'lily' ? 'Seerosen gehören in den Teich' : 'Hier passt das nicht hin'); return; }
     if (gSeeds() < it[2]) { toast('Dafür fehlen dir noch Samen'); return; }
-    const G = GD(); G.items.push({ t: it[0], x: Math.round(p.x), y: Math.round(p.y) }); G.spent += it[2]; save();
+    const G = GD(); G.items.push(GROW[it[0]] ? { t: it[0], x: Math.round(p.x), y: Math.round(p.y), p: Date.now() } : { t: it[0], x: Math.round(p.x), y: Math.round(p.y) }); G.spent += it[2]; save();
     state.gPlace = null; state.gTab = 'shop'; renderGFull(); return;
   }
   if (state.gRemove) {
@@ -2849,6 +2926,8 @@ function gTap(svg, e) {
     const G = GD(), idx = +gi.dataset.gi, it = G.items[idx], cost = (GSHOP.find(x => x[0] === it.t) || [0, 0, 0])[2];
     G.items.splice(idx, 1); G.spent = Math.max(0, G.spent - cost); save(); renderGFull(); return;
   }
+  const gi0 = e.target.closest('.gitem');
+  if (gi0 && !e.target.closest('.ghit')) { const it = GD().items[+gi0.dataset.gi]; if (it && growStage(it) !== 'bloom') { const d = growLeft(it); gLabel(it.x, it.y - 22, d < 1 ? 'Blüht bald' : d < 2 ? 'Blüht morgen' : `Blüht in ${Math.ceil(d)} Tagen`); return; } }
   if (e.target.closest('.ghit')) { const g = e.target.closest('.gduck, .gfr'); if (g && g.classList.contains('gduck')) gPet(); else if (g) { gHearts(gs.duck2.x, gs.duck2.y - 24); } return; }
   const fh = e.target.closest('.gfr');
   if (fh) { const f = fh.dataset.f, st = gs.fr[f]; gs.frHappy[f] = performance.now() + 700; const bb = fh.getBBox ? fh.getBoundingClientRect() : null; const p = gSvgPoint(svg, e); gHearts(p.x, p.y - 12); }
@@ -2895,7 +2974,7 @@ function gDrawer() {
   if (state.gBuy) { const B = state.gBuy; b += `<div class="banner gbuy"><div style="flex:1">${B.name} für ${B.cost} Samen?</div><button class="btn sm ghost" data-a="gBuyNo">Abbrechen</button><button class="btn sm dark" data-a="gBuyYes">${B.kind === 'friend' ? 'Einladen' : 'Kaufen'}</button></div>`; }
   if (tab === 'shop') {
     b += `<div class="between" style="margin-bottom:4px"><div class="serif" style="font-size:21px">Gestalten</div><div class="seg"><button class="${!state.gRemove ? 'on' : ''}" data-a="gModeAdd">Setzen</button><button class="${state.gRemove ? 'on' : ''}" data-a="gModeDel">Entfernen</button></div></div>`;
-    b += GCAT.map(([ck, cn]) => `<div class="eyebrow" style="margin:14px 0 8px">${cn}</div><div class="gshop">${GSHOP.filter(x => x[3] === ck).map(([t, l, c]) => `<button class="gsi ${seeds < c ? 'off' : ''}" data-a="gPick" data-v="${t}">${shopIcon(t)}<span>${l}</span><small>${c} Samen</small></button>`).join('')}</div>`).join('');
+    b += GCAT.map(([ck, cn]) => `<div class="eyebrow" style="margin:14px 0 8px">${cn}</div><div class="gshop">${GSHOP.filter(x => x[3] === ck).map(([t, l, c]) => `<button class="gsi ${seeds < c ? 'off' : ''}" data-a="gPick" data-v="${t}">${shopIcon(t)}<span>${l}</span><small>${c} Samen${GROW[t] ? `, ${GROW[t] === 1 ? '1 Tag' : GROW[t] + ' Tage'}` : ''}</small></button>`).join('')}</div>`).join('');
   }
   if (tab === 'wear') {
     b += `<div class="serif" style="font-size:21px;margin-bottom:4px">Garderobe</div>`;
@@ -3389,7 +3468,7 @@ function makeDemo() {
     { id: 'cd2', date: ago(4), situation: 'Eine Freundin hat seit drei Tagen nicht auf meine Nachricht geantwortet.', feel: [{ f: 'traurig', before: 60, after: 30 }], body: '', thought: 'Sie hat keine Lust mehr auf mich.', dist: ['lesen', 'kat'], pro: 'Sie antwortet sonst schneller.', contra: 'Sie hat erzählt, dass sie gerade viel Stress hat.', balanced: 'Wahrscheinlich hat sie gerade einfach viel um die Ohren. Ich kann nachfragen, wie es ihr geht.' }
   ];
   const about = { staerken: 'Zuhören und Dinge geduldig erklären', werte: 'Ehrlichkeit, Familie, Zeit für mich', energie: 'Spaziergänge, Musik, gute Gespräche', hilft: 'Rausgehen, eine Freundin anrufen und mir nicht zu viel vornehmen', satz: 'Es ist okay, heute langsam zu sein.' };
-  return { days, health, kraft: { worries, letters, who5, stime: '18:00', cbt, about, habits: [], walks: walksD, walkStart: null, garden: { items: [{ t: 'daisy', x: 150, y: 200 }, { t: 'tulip', x: 168, y: 208 }, { t: 'bush', x: 104, y: 180 }, { t: 'lily', x: 280, y: 212 }, { t: 'stone', x: 206, y: 238 }, { t: 'lantern', x: 196, y: 182 }, { t: 'house', x: 300, y: 178 }, { t: 'birdbath', x: 236, y: 178 }], spent: 279, petLock: 0, owned: ['straw'], wear: { head: 'straw' }, friends: ['snail'], paused: [], feed: null } } };
+  return { days, health, kraft: { worries, letters, who5, stime: '18:00', cbt, about, habits: [], walks: walksD, walkStart: null, garden: { items: [{ t: 'daisy', x: 150, y: 200 }, { t: 'tulip', x: 168, y: 208 }, { t: 'bush', x: 104, y: 180 }, { t: 'lily', x: 280, y: 212 }, { t: 'stone', x: 206, y: 238 }, { t: 'lantern', x: 196, y: 182 }, { t: 'house', x: 300, y: 178 }, { t: 'birdbath', x: 236, y: 178 }, { t: 'sunflower', x: 126, y: 214, p: Date.now() - 3.1 * 864e5 }, { t: 'tulip', x: 186, y: 206, p: Date.now() - .5 * 864e5 }], spent: 300, petLock: 0, owned: ['straw'], wear: { head: 'straw' }, friends: ['snail'], paused: [], feed: null } } };
 }
 function loadDemo() {
   if (Object.keys(DB.days).length && !DB.settings.demo && !confirm('Beispieldaten ersetzen deine aktuellen Einträge. Fortfahren? Exportiere vorher eine Sicherung, falls du sie behalten möchtest.')) return;
