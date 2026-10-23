@@ -367,6 +367,15 @@ details.more>summary::-webkit-details-marker{display:none}details.more[open]>sum
 .gf-bar button small{font-size:10.5px;color:var(--ink3);margin-top:-1px}
 .gf-bar button.on{background:var(--sand);color:var(--ink)}
 .gf-bar button.dim{opacity:.5}
+.set-link{width:100%;background:none;border-left:0;border-right:0;border-bottom:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.chev{color:var(--ink3);font-size:24px;line-height:1}
+.crow{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.crow .inp{flex:1;min-width:0;padding:10px 12px;border-radius:12px}
+.cadd .btn{flex:none;width:auto}
+.csel{flex:none;width:118px;border:1px solid var(--line);background:var(--cream) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23948C79' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 9px center;border-radius:12px;padding:10px 22px 10px 8px;text-overflow:ellipsis;font:inherit;font-size:13px;color:var(--ink2);-webkit-appearance:none;appearance:none}
+.cbtn{flex:none;width:36px;height:40px;border:0;border-radius:12px;background:var(--sand);color:var(--ink2);font:inherit;font-size:16px}
+.cbtn:disabled{opacity:.35}
+.cgroup{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
 </style>
 </head>
 <body>
@@ -420,8 +429,8 @@ const PH = {
 };
 const PH_ORDER = ['men', 'fol', 'ovu', 'lut'];
 const FLOW = [{ v: 1, l: 'Schmier­blutung' }, { v: 2, l: 'Leicht' }, { v: 3, l: 'Mittel' }, { v: 4, l: 'Stark' }];
-const MOODS = ['', 'Sehr schlecht', 'Schlecht', 'Okay', 'Gut', 'Sehr gut'];
-const FEELINGS = [
+const DEF_MOODS = ['Sehr schlecht', 'Schlecht', 'Okay', 'Gut', 'Sehr gut'];
+const DEF_FEELINGS = [
   ['gluecklich', 'glücklich', 1], ['ruhig', 'ruhig', 1], ['dankbar', 'dankbar', 1], ['motiviert', 'motiviert', 1],
   ['verbunden', 'verbunden', 1], ['zufrieden', 'zufrieden', 1], ['energie', 'voller Energie', 1], ['kreativ', 'kreativ', 1],
   ['verliebt', 'verliebt', 1], ['selbstsicher', 'selbstsicher', 1],
@@ -429,21 +438,55 @@ const FEELINGS = [
   ['ueberfordert', 'überfordert', -1], ['einsam', 'einsam', -1], ['unsicher', 'unsicher', -1], ['wuetend', 'wütend', -1],
   ['duennhaeutig', 'dünnhäutig', -1], ['antriebslos', 'antriebslos', -1], ['leer', 'leer', -1], ['schuldig', 'schuldig', -1]
 ];
-const FEEL = Object.fromEntries(FEELINGS.map(f => [f[0], { l: f[1], v: f[2] }]));
-const SYMPTOMS = [
+const DEF_SYMPTOMS = [
   ['cramps', 'Krämpfe'], ['headache', 'Kopfschmerzen'], ['migraine', 'Migräne'], ['breasts', 'Brustspannen'],
   ['bloating', 'Blähbauch'], ['back', 'Rückenschmerzen'], ['nausea', 'Übelkeit'], ['skin', 'Unreine Haut'],
   ['cravings', 'Heißhunger'], ['fatigue', 'Müdigkeit'], ['dizzy', 'Schwindel'], ['digestion', 'Verdauung'],
   ['joints', 'Gliederschmerzen'], ['restless', 'Schlechter Schlaf'], ['hot', 'Hitzewallungen'], ['water', 'Wasser­einlagerungen'],
   ['ovpain', 'Mittelschmerz']
 ];
-const TAG_GROUPS = [
+const DEF_TAG_GROUPS = [
   ['Bewegung', [['sport', 'Sport'], ['walk', 'Spaziergang'], ['yoga', 'Yoga'], ['outdoor', 'Draußen']]],
   ['Menschen', [['friends', 'Freunde'], ['family', 'Familie'], ['partner', 'Zeit zu zweit'], ['metime', 'Zeit für mich']]],
   ['Alltag', [['workStress', 'Stress bei der Arbeit'], ['workGood', 'Guter Arbeitstag'], ['travel', 'Unterwegs'], ['sick', 'Krank'], ['screen', 'Viel Bildschirm']]],
-  ['Ernährung und Genuss', [['caffeine', 'Koffein'], ['alcohol', 'Alkohol'], ['sugar', 'Viel Zucker'], ['healthy', 'Gesund gegessen']]],
+  ['Ernährung und Genuss', [['caffeine', 'Koffein'], ['sugar', 'Viel Zucker'], ['healthy', 'Gesund gegessen']]],
   ['Fürsorge und Medizin', [['meditation', 'Meditation'], ['selfcare', 'Selbstfürsorge'], ['pill', 'Pille genommen'], ['painkiller', 'Schmerzmittel'], ['supplements', 'Nahrungsergänzung']]]
 ];
+// Auswahl im Tageseintrag: in den Einstellungen frei änderbar, gespeichert in DB.settings.catalog
+let MOODS = [''].concat(DEF_MOODS), FEELINGS = [], FEEL = {}, SYMPTOMS = [], TAG_GROUPS = [];
+const BANNED = ['alcohol'];
+function defaultCatalog() {
+  return {
+    moods: DEF_MOODS.slice(),
+    feel: DEF_FEELINGS.map(([id, l, v]) => ({ id, l, v })),
+    sym: DEF_SYMPTOMS.map(([id, l]) => ({ id, l: l.replace(/\u00AD/g, '') })),
+    groups: DEF_TAG_GROUPS.map(([l, items], k) => ({ id: 'g' + k, l, items: items.map(([id, il]) => ({ id, l: il })) }))
+  };
+}
+function migrateCatalog(d) {
+  const S = d.settings;
+  if (!S.catalog) S.catalog = defaultCatalog();
+  // frühere eigene Symptome und Einflüsse übernehmen
+  (S.customSymptoms || []).forEach(x => { if (!S.catalog.sym.some(y => y.id === x.id)) S.catalog.sym.push({ id: x.id, l: x.l }); });
+  if ((S.customTags || []).length) { let g = S.catalog.groups.find(x => x.id === 'gOwn'); if (!g) S.catalog.groups.push(g = { id: 'gOwn', l: 'Eigene', items: [] }); S.customTags.forEach(x => { if (!g.items.some(y => y.id === x.id)) g.items.push({ id: x.id, l: x.l }); }); }
+  S.customSymptoms = []; S.customTags = [];
+  const C = S.catalog;
+  if (!C.moods || C.moods.length !== 5) C.moods = DEF_MOODS.slice();
+  C.feel = C.feel || []; C.sym = C.sym || []; C.groups = C.groups || [];
+  // Alkohol grundsätzlich entfernt, auch aus alten Einträgen
+  C.groups.forEach(g => { g.items = g.items.filter(i => !BANNED.includes(i.id)); });
+  Object.values(d.days || {}).forEach(day => { if (day.tags) day.tags = day.tags.filter(t => !BANNED.includes(t)); });
+  return d;
+}
+function syncCatalog() {
+  if (typeof DB === 'undefined' || !DB) return;
+  const C = DB.settings.catalog; if (!C) return;
+  MOODS = [''].concat(C.moods);
+  FEEL = Object.fromEntries(C.feel.map(f => [f.id, { l: f.l, v: f.v }]));
+  FEELINGS = C.feel.filter(f => !f.off && f.v > 0).concat(C.feel.filter(f => !f.off && f.v < 0)).map(f => [f.id, f.l, f.v]);
+  SYMPTOMS = C.sym.filter(x => !x.off).map(x => [x.id, x.l]);
+  TAG_GROUPS = C.groups.map(g => [g.l, g.items.filter(i => !i.off).map(i => [i.id, i.l])]).filter(g => g[1].length);
+}
 const DISCHARGE = [['dry', 'Trocken'], ['sticky', 'Klebrig'], ['creamy', 'Cremig'], ['watery', 'Wässrig'], ['eggwhite', 'Spinnbar']];
 const LIBIDO = [[1, 'Niedrig'], [2, 'Mittel'], [3, 'Hoch']];
 const SEX = [['none', 'Kein Sex'], ['prot', 'Geschützt'], ['unprot', 'Ungeschützt']];
@@ -464,7 +507,7 @@ const LS_KEY = 'gezeiten.v1';
 const DEFAULT = () => ({
   version: 1,
   settings: { name: '', cycleLen: 28, periodLen: 5, lutealLen: 14, lastStart: null, onboarded: false, demo: false,
-    modules: { energy: true, fertility: true, habits: true, health: false }, customSymptoms: [], customTags: [], lastBackup: null, lastHealth: null },
+    modules: { energy: true, fertility: true, habits: true, health: false }, customSymptoms: [], customTags: [], lastBackup: null, lastHealth: null, catalog: defaultCatalog() },
   days: {}, health: {}, kraft: { worries: [], letters: [], who5: [], stime: '18:00', cbt: [], about: {}, habits: [], walks: [], walkStart: null }
 });
 function loadDB() {
@@ -477,12 +520,13 @@ function loadDB() {
       d.days = d.days || {};
       d.health = d.health || {};
       d.kraft = Object.assign(def.kraft, d.kraft || {});
-      return d;
+      return migrateCatalog(d);
     }
   } catch (e) { console.warn(e); }
   return DEFAULT();
 }
 let DB = loadDB();
+syncCatalog();
 function save(silent) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(DB)); }
   catch (e) { toast('Speichern nicht möglich'); }
@@ -502,14 +546,14 @@ function upd(iso, fn) {
   if (Object.keys(d).length) DB.days[iso] = d; else delete DB.days[iso];
   save();
 }
-const allSymptoms = () => SYMPTOMS.concat(DB.settings.customSymptoms.map(s => [s.id, s.l]));
-const symLabel = id => (allSymptoms().find(s => s[0] === id) || [id, id])[1];
-const allTags = () => TAG_GROUPS.flatMap(g => g[1]).concat(DB.settings.customTags.map(t => [t.id, t.l]));
+const allSymptoms = () => SYMPTOMS;
+const symLabel = id => { const x = DB.settings.catalog.sym.find(s => s.id === id); return x ? x.l : id; };
+const allTags = () => DB.settings.catalog.groups.flatMap(g => g.items.map(i => [i.id, i.l]));
 const tagLabel = id => (allTags().find(t => t[0] === id) || [id, id])[1];
 
 // ---------- Zyklus-Engine
 let _C = null; const _I = new Map(); let _A = {};
-function invalidate() { _C = null; _I.clear(); _A = {}; }
+function invalidate() { _C = null; _I.clear(); _A = {}; syncCatalog(); }
 function C() { if (!_C) _C = computeCycles(); return _C; }
 
 function computeCycles() {
@@ -1065,12 +1109,12 @@ function renderLog() {
   h += `<div class="card"><h3>Periode</h3><div class="opts" style="--n:4">${FLOW.map(f => `<button class="opt ${sel(d.flow === f.v)}" data-a="flow" data-v="${f.v}">${drops(f.v)}<span>${f.l}</span></button>`).join('')}</div></div>`;
   // Stimmung
   h += `<div class="card"><h3>Stimmung</h3><div class="faces ${d.mood ? 'has' : ''}">${[1, 2, 3, 4, 5].map(v => `<button class="face ${sel(d.mood === v)}" data-a="mood" data-v="${v}">${face(v)}<span>${MOODS[v]}</span></button>`).join('')}</div>
-    <div class="field-l" style="margin-top:18px">Gefühle</div><div class="chips">${FEELINGS.map(f => `<button class="chip ${sel((d.feel || []).includes(f[0]))}" data-a="feel" data-v="${f[0]}">${f[1]}</button>`).join('')}</div></div>`;
+    <div class="field-l" style="margin-top:18px">Gefühle</div><div class="chips">${FEELINGS.map(f => `<button class="chip ${sel((d.feel || []).includes(f[0]))}" data-a="feel" data-v="${f[0]}">${esc(f[1])}</button>`).join('')}</div></div>`;
   // Energie und Anspannung
   const scale = (k, l, lo, hi) => `<div class="field-l">${l}</div><div class="scale">${[1, 2, 3, 4, 5].map(v => `<button class="${d[k] === v ? 'on' : d[k] > v ? 'f' : ''}" data-a="scale" data-k="${k}" data-v="${v}">${v}</button>`).join('')}</div><div class="scale-l"><span>${lo}</span><span>${hi}</span></div>`;
   h += `<div class="card"><h3>${M.energy ? 'Energie und Anspannung' : 'Anspannung'}</h3>${M.energy ? scale('energy', 'Energie', 'erschöpft', 'voller Energie') : ''}${scale('stress', 'Stress', 'entspannt', 'sehr gestresst')}${scale('anxiety', 'Angst und Unruhe', 'gar nicht', 'sehr stark')}</div>`;
   // Körper
-  h += `<div class="card"><h3>Körper</h3><div class="chips">${allSymptoms().map(([k, l]) => { const v = (d.sym || {})[k] || 0; return `<button class="chip ${sel(v)}" data-a="sym" data-v="${k}">${esc(l)}${v ? `<span class="lv">${[1, 2, 3].map(j => `<i class="${j <= v ? 'f' : ''}"></i>`).join('')}</span>` : ''}</button>`; }).join('')}<button class="chip add" data-a="addSymQuick">+ Eigenes</button></div></div>`;
+  h += `<div class="card"><h3>Körper</h3><div class="chips">${allSymptoms().map(([k, l]) => { const v = (d.sym || {})[k] || 0; return `<button class="chip ${sel(v)}" data-a="sym" data-v="${k}">${esc(l)}${v ? `<span class="lv">${[1, 2, 3].map(j => `<i class="${j <= v ? 'f' : ''}"></i>`).join('')}</span>` : ''}</button>`; }).join('')}</div></div>`;
   // Fruchtbarkeit
   if (M.fertility) {
     const o = (arr, key, act) => `<div class="opts" style="--n:${arr.length}">${arr.map(([v, l]) => `<button class="opt ${sel(d[key] === v)}" data-a="${act}" data-v="${v}">${l}</button>`).join('')}</div>`;
@@ -1083,8 +1127,7 @@ function renderLog() {
   }
   // Einflüsse
   if (M.habits) {
-    h += `<div class="card"><h3>Einflüsse</h3>${TAG_GROUPS.map(([g, list]) => `<div class="group-l">${g}</div><div class="chips">${list.map(([k, l]) => `<button class="chip ${sel((d.tags || []).includes(k))}" data-a="tag" data-v="${k}">${l}</button>`).join('')}</div>`).join('')}
-      <div class="group-l">Eigene</div><div class="chips">${DB.settings.customTags.map(tg => `<button class="chip ${sel((d.tags || []).includes(tg.id))}" data-a="tag" data-v="${tg.id}">${esc(tg.l)}</button>`).join('')}<button class="chip add" data-a="addTagQuick">+ Eigenes</button></div>
+    h += `<div class="card"><h3>Einflüsse</h3>${TAG_GROUPS.map(([g, list]) => `<div class="group-l">${g}</div><div class="chips">${list.map(([k, l]) => `<button class="chip ${sel((d.tags || []).includes(k))}" data-a="tag" data-v="${k}">${esc(l)}</button>`).join('')}</div>`).join('')}
       <div class="group-l">Wasser</div><div class="counter"><button class="iconbtn sm" style="background:var(--sand)" data-a="water" data-v="-1">−</button><b>${d.water || 0}</b><button class="iconbtn sm" style="background:var(--sand)" data-a="water" data-v="1">${ic('plus')}</button><span class="muted">Gläser</span></div></div>`;
   }
   // Tagebuch
@@ -1114,9 +1157,11 @@ function renderSettings() {
     ${stepper('cycleLen', 'Typische Zykluslänge', 20, 45)}${stepper('periodLen', 'Typische Periodendauer', 2, 10)}${stepper('lutealLen', 'Lutealphase', 9, 17)}
     <div class="field-l">Beginn der letzten Periode, falls noch nicht im Kalender</div><input class="inp" type="date" data-in="lastStart" value="${S.lastStart || ''}" max="${todayISO()}"></div>
   <div class="card"><h3>Bereiche</h3>${tog('energy', 'Energie', 'Energielevel pro Tag')}${tog('fertility', 'Fruchtbarkeit', 'Temperatur, Ausfluss, Tests, Libido, Sex')}${tog('habits', 'Einflüsse', 'Bewegung, Menschen, Genuss, Medikamente, Wasser')}${tog('health', 'Apple Health', 'Schlaf, Schritte, Ruhepuls und mehr über einen Kurzbefehl')}${M.health ? '<button class="btn sm dark" style="margin-top:6px" data-a="health">Health-Import und Anleitung</button>' : ''}</div>
-  <div class="card"><h3>Eigene Symptome</h3><div class="chips" style="margin-bottom:10px">${S.customSymptoms.map(s => `<span class="chip">${esc(s.l)}<button class="x" data-a="delSym" data-v="${s.id}" aria-label="Entfernen">×</button></span>`).join('') || '<span class="note">Noch keine</span>'}</div>
+  <div class="card"><h3>Auswahl im Tageseintrag</h3><p class="note" style="margin-top:-6px">Benennen, ausblenden, ergänzen und neu ordnen.</p>
+    ${[['moods', 'Stimmung', 'Die fünf Stufen'], ['feel', 'Gefühle', 'Angenehm und schwer'], ['sym', 'Körper', 'Symptome'], ['groups', 'Einflüsse', 'Mit eigenen Unterkategorien']].map(([k, l, sub]) => `<button class="set-row set-link" data-a="catOpen" data-v="${k}"><div><div>${l}</div><div class="note">${sub}</div></div><span class="chev">›</span></button>`).join('')}</div>
+  <div class="card" hidden><h3>Eigene Symptome</h3><div class="chips" style="margin-bottom:10px">${S.customSymptoms.map(s => `<span class="chip">${esc(s.l)}<button class="x" data-a="delSym" data-v="${s.id}" aria-label="Entfernen">×</button></span>`).join('') || '<span class="note">Noch keine</span>'}</div>
     <div class="row"><input class="inp" id="newSym" placeholder="z. B. Kiefer verspannt"><button class="btn sm dark" data-a="addSym">Hinzufügen</button></div></div>
-  <div class="card"><h3>Eigene Einflüsse</h3><div class="chips" style="margin-bottom:10px">${S.customTags.map(s => `<span class="chip">${esc(s.l)}<button class="x" data-a="delTag" data-v="${s.id}" aria-label="Entfernen">×</button></span>`).join('') || '<span class="note">Noch keine</span>'}</div>
+  <div class="card" hidden><h3>Eigene Einflüsse</h3><div class="chips" style="margin-bottom:10px">${S.customTags.map(s => `<span class="chip">${esc(s.l)}<button class="x" data-a="delTag" data-v="${s.id}" aria-label="Entfernen">×</button></span>`).join('') || '<span class="note">Noch keine</span>'}</div>
     <div class="row"><input class="inp" id="newTag" placeholder="z. B. Sauna"><button class="btn sm dark" data-a="addTag">Hinzufügen</button></div></div>
   <div class="card"><h3>Daten</h3><p class="note" style="margin-top:-6px">Alles liegt nur auf diesem Gerät im Browser-Speicher. Sichere regelmäßig, zum Beispiel in iCloud Drive. Sicherungen werden mit einem Passwort verschlüsselt.${S.lastBackup ? ` Letzte Sicherung: ${dShort(S.lastBackup)}.` : ''}</p>
     <button class="btn dark" data-a="export">Sicherung exportieren</button>
@@ -3048,6 +3093,122 @@ document.addEventListener('click', e => {
 });
 </script>
 <script>
+// =========================================================
+// Einstellungen: Auswahl im Tageseintrag bearbeiten
+// =========================================================
+const catClean = v => v.replace(/[<>&"]/g, '').replace(/\s+/g, ' ').slice(0, 40);
+const CAT = () => DB.settings.catalog;
+const CAT_T = { moods: 'Stimmung', feel: 'Gefühle', sym: 'Körper', groups: 'Einflüsse' };
+function catOpen(sec) { state.sheet = 'catalog'; state.catSec = sec; renderCatalog(true); }
+function catRow(inner) { return `<div class="crow">${inner}</div>`; }
+function catInp(kind, id, val, extra = '') { return `<input class="inp" data-ci="${kind}" data-id="${id}" value="${val}" maxlength="40" ${extra}>`; }
+function catX(kind, id) { return `<button class="cbtn" data-a="catHide" data-k="${kind}" data-v="${id}" aria-label="Ausblenden">×</button>`; }
+function catAddRow(kind, v, ph) { return `<div class="crow cadd"><input class="inp" id="catNew-${kind}-${v}" placeholder="${ph}" maxlength="40"><button class="btn sm dark" data-a="catAdd" data-k="${kind}" data-v="${v}">Hinzufügen</button></div>`; }
+function catHidden(list, kind) {
+  if (!list.length) return '';
+  return `<div class="field-l" style="margin-top:22px">Ausgeblendet</div><div class="chips">${list.map(x => `<button class="chip" data-a="catShow" data-k="${kind}" data-v="${x.id}">${x.l} <span style="color:var(--ink3)">zurückholen</span></button>`).join('')}</div>`;
+}
+function renderCatalog(top) {
+  const C = CAT(), sec = state.catSec;
+  let b = '';
+  if (sec === 'moods') {
+    b += `<p class="note">So heißen die fünf Stufen beim Eintragen und in den Auswertungen.</p>`;
+    b += C.moods.map((l, k) => catRow(`<span style="flex:none">${face(k + 1, 30)}</span>${catInp('mood', k, l)}`)).join('');
+  }
+  if (sec === 'feel') {
+    [[1, 'Angenehm'], [-1, 'Schwer']].forEach(([v, n]) => {
+      b += `<div class="field-l">${n}</div>`;
+      b += C.feel.filter(f => !f.off && f.v === v).map(f => catRow(`${catInp('feel', f.id, f.l)}<select class="csel" data-cs="feelv" data-id="${f.id}"><option value="1" ${v > 0 ? 'selected' : ''}>Angenehm</option><option value="-1" ${v < 0 ? 'selected' : ''}>Schwer</option></select>${catX('feel', f.id)}`)).join('');
+      b += catAddRow('feel', v, v > 0 ? 'Neues angenehmes Gefühl' : 'Neues schweres Gefühl');
+    });
+    b += catHidden(C.feel.filter(f => f.off), 'feel');
+  }
+  if (sec === 'sym') {
+    b += C.sym.filter(x => !x.off).map(x => catRow(`${catInp('sym', x.id, x.l)}${catX('sym', x.id)}`)).join('');
+    b += catAddRow('sym', 0, 'Neues Symptom');
+    b += catHidden(C.sym.filter(x => x.off), 'sym');
+  }
+  if (sec === 'groups') {
+    const G = C.groups.filter(g => !g.off);
+    b += `<p class="note">Einträge lassen sich über das Auswahlfeld in eine andere Unterkategorie verschieben.</p>`;
+    G.forEach((g, gi) => {
+      b += `<div class="cgroup"><div class="crow">${catInp('group', g.id, g.l, 'style="font-weight:600"')}<button class="cbtn" data-a="catGMove" data-v="${g.id}" data-k="-1" ${gi === 0 ? 'disabled' : ''} aria-label="Nach oben">↑</button><button class="cbtn" data-a="catGMove" data-v="${g.id}" data-k="1" ${gi === G.length - 1 ? 'disabled' : ''} aria-label="Nach unten">↓</button><button class="cbtn" data-a="catGDel" data-v="${g.id}" aria-label="Unterkategorie löschen">×</button></div>`;
+      b += `<div class="citems">${g.items.filter(i => !i.off).map(i => catRow(`${catInp('item', i.id, i.l)}<select class="csel" data-cs="itemg" data-id="${i.id}">${G.map(o => `<option value="${o.id}" ${o.id === g.id ? 'selected' : ''}>${o.l}</option>`).join('')}</select>${catX('item', i.id)}`)).join('') || '<p class="note" style="margin:0 0 8px">Noch leer</p>'}`;
+      b += catAddRow('item', g.id, 'Neuer Eintrag') + `</div></div>`;
+    });
+    b += `<div class="cgroup"><div class="field-l" style="margin-top:0">Neue Unterkategorie</div>${catAddRow('group', 0, 'z. B. Schlaf')}</div>`;
+    b += catHidden(C.groups.flatMap(g => g.items.filter(i => i.off)), 'item');
+  }
+  const s = $('#sheet'), st = s.scrollTop;
+  s.innerHTML = `<div class="sheet-head"><div class="t"><div class="serif">${CAT_T[sec]}</div></div><button class="btn sm" data-a="catBack">Zurück</button></div>${b}`;
+  s.scrollTop = top ? 0 : st;
+}
+function catFind(kind, id) {
+  const C = CAT();
+  if (kind === 'feel') return C.feel.find(x => x.id === id);
+  if (kind === 'sym') return C.sym.find(x => x.id === id);
+  if (kind === 'group') return C.groups.find(x => x.id === id);
+  for (const g of C.groups) { const i = g.items.find(x => x.id === id); if (i) return i; }
+}
+function catGroupOf(id) { return CAT().groups.find(g => g.items.some(i => i.id === id)); }
+let _catT = null;
+document.addEventListener('input', e => {
+  const el = e.target.closest && e.target.closest('[data-ci]'); if (!el) return;
+  const v = catClean(el.value); if (!v.trim()) return;
+  const kind = el.dataset.ci, id = el.dataset.id;
+  if (kind === 'mood') CAT().moods[+id] = v.trim();
+  else { const x = catFind(kind, id); if (x) x.l = v.trim(); }
+  clearTimeout(_catT); _catT = setTimeout(() => save(), 300);
+});
+document.addEventListener('change', e => {
+  const el = e.target.closest && e.target.closest('[data-cs]'); if (!el) return;
+  const C = CAT(), id = el.dataset.id;
+  if (el.dataset.cs === 'feelv') { const f = C.feel.find(x => x.id === id); if (f) f.v = +el.value; }
+  if (el.dataset.cs === 'itemg') {
+    const from = catGroupOf(id), to = C.groups.find(g => g.id === el.value);
+    if (from && to && from !== to) { const it = from.items.find(i => i.id === id); from.items = from.items.filter(i => i.id !== id); to.items.push(it); toast(`Verschoben nach ${to.l}`); }
+  }
+  save(); renderCatalog();
+});
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-a]'); if (!el) return;
+  const a = el.dataset.a, v = el.dataset.v, k = el.dataset.k, C = CAT();
+  if (a === 'catOpen') catOpen(v);
+  if (a === 'catBack') { clearTimeout(_catT); save(); state.sheet = 'settings'; renderSettings(); }
+  if (a === 'catAdd') {
+    const inp = $(`#catNew-${k}-${v}`); const l = catClean(inp ? inp.value : '').trim(); if (!l) return;
+    if (k === 'feel') { if (C.feel.some(f => !f.off && f.l.toLowerCase() === l.toLowerCase())) return toast('Gibt es schon'); C.feel.push({ id: newId(l), l, v: +v }); }
+    if (k === 'sym') { if (C.sym.some(x => !x.off && x.l.toLowerCase() === l.toLowerCase())) return toast('Gibt es schon'); C.sym.push({ id: newId(l), l }); }
+    if (k === 'item') { const g = C.groups.find(x => x.id === v); if (!g) return; if (allTags().some(t => t[1].toLowerCase() === l.toLowerCase() && !(catFind('item', t[0]) || {}).off)) return toast('Gibt es schon'); g.items.push({ id: newId(l), l }); }
+    if (k === 'group') { if (C.groups.some(g => !g.off && g.l.toLowerCase() === l.toLowerCase())) return toast('Gibt es schon'); C.groups.push({ id: 'g' + Date.now().toString(36), l, items: [] }); }
+    save(); renderCatalog();
+    const n = $(`#catNew-${k}-${v}`); if (n) n.focus();
+  }
+  if (a === 'catHide') { const x = catFind(k, v); if (x) { x.off = true; save(); renderCatalog(); toast('Ausgeblendet, frühere Einträge bleiben erhalten'); } }
+  if (a === 'catShow') {
+    const x = catFind(k, v); if (!x) return; x.off = false;
+    if (k === 'item') { const g = catGroupOf(v); if (g && g.off) { const vis = C.groups.find(o => !o.off); if (vis) { g.items = g.items.filter(i => i.id !== v); vis.items.push(x); } else g.off = false; } }
+    save(); renderCatalog();
+  }
+  if (a === 'catGMove') {
+    const vis = C.groups.filter(g => !g.off), i = vis.findIndex(g => g.id === v), j = i + +k; if (i < 0 || j < 0 || j >= vis.length) return;
+    const A = vis[i], B = vis[j], ia = C.groups.indexOf(A), ib = C.groups.indexOf(B); C.groups[ia] = B; C.groups[ib] = A; save(); renderCatalog();
+  }
+  if (a === 'catGDel') {
+    const g = C.groups.find(x => x.id === v); if (!g) return;
+    const n = g.items.filter(i => !i.off).length;
+    if (C.groups.filter(x => !x.off).length <= 1) return toast('Mindestens eine Unterkategorie bleibt');
+    if (n && !confirm(`Unterkategorie „${g.l}“ löschen? ${n === 1 ? 'Der Eintrag darin wird' : `Die ${n} Einträge darin werden`} ausgeblendet und lassen sich unten zurückholen.`)) return;
+    g.off = true; g.items.forEach(i => i.off = true); save(); renderCatalog();
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || state.sheet !== 'catalog') return;
+  const inp = e.target.closest && e.target.closest('.cadd .inp'); if (!inp) return;
+  const btn = inp.parentElement.querySelector('[data-a=catAdd]'); if (btn) { e.preventDefault(); btn.click(); }
+});
+</script>
+<script>
 // ---------- Analyse
 const PH_IN = { men: 'während der Periode', fol: 'in der Follikelphase', ovu: 'rund um den Eisprung', lut: 'in der Lutealphase' };
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
@@ -3357,7 +3518,7 @@ window.addEventListener('scroll', hideTip, { passive: true });
 // ---------- Beispieldaten
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function makeDemo() {
-  const R = rng(42), t = todayISO(), days = {}, health = {}, walksD = [];
+  const R = rng(42), t = todayISO(), days = {}, health = {}, walksD = [], LATE = new Set();
   const pick = a => a[Math.floor(R() * a.length)];
   const PROUD = ['Ich habe Nein gesagt, als es mir zu viel war.', 'Trotz Müdigkeit eine Runde spazieren gegangen.', 'Ein schwieriges Gespräch geführt.', 'Mir eine Pause gegönnt, ohne schlechtes Gewissen.', 'Endlich den Anruf erledigt, den ich vor mir hergeschoben habe.', 'Früh ins Bett gegangen.', 'Jemandem zugehört, der es gebraucht hat.', 'Die Präsentation ruhig durchgezogen.'];
   const NOTES = {
@@ -3371,7 +3532,7 @@ function makeDemo() {
     const L = 27 + Math.floor(R() * 4), ov = L - 14;
     for (let cd = 1; cd <= L; cd++) {
       const iso = addDays(st, cd - 1); if (iso > t) break;
-      const prev = days[addDays(iso, -1)], prevAlc = prev && prev.tags && prev.tags.includes('alcohol'), pre = cd >= L - 4;
+      const prev = days[addDays(iso, -1)], prevAlc = LATE.has(addDays(iso, -1)), pre = cd >= L - 4;
       const slp = clamp(Math.round(445 + (pre ? -38 : 0) + (prevAlc ? -45 : 0) + (R() - .5) * 110), 290, 560);
       const bedM = 23 * 60 - 10 + Math.round((R() - .5) * 70);
       const hd = { sleep: slp, bed: `${pad(Math.floor(bedM / 60) % 24)}:${pad(bedM % 60)}`, wake: `${pad(Math.floor((bedM + slp + 20) / 60) % 24)}:${pad((bedM + slp + 20) % 60)}`,
@@ -3385,12 +3546,12 @@ function makeDemo() {
       const tg = [];
       if (R() < (cd <= 2 ? .12 : .38)) tg.push('sport');
       if (R() < .3) tg.push('outdoor');
-      if (R() < (wd === 5 || wd === 6 ? .45 : .07)) tg.push('alcohol');
+      if (R() < (wd === 5 || wd === 6 ? .45 : .1)) { tg.push('screen'); LATE.add(iso); }
       if (R() < .6) tg.push('caffeine');
       if (wd >= 1 && wd <= 5 && R() < .3) tg.push('workStress');
       if (R() < (wd === 0 || wd === 6 ? .55 : .18)) tg.push('friends');
       if (R() < .18) tg.push('meditation');
-      if (R() < .28) tg.push('screen');
+      if (R() < .2 && !tg.includes('screen')) tg.push('screen');
       if (cd <= 2 && R() < .6) tg.push('painkiller');
       const br = R() < (pre ? .35 : .14);
       let m = 3.5 + (cd <= 2 ? -.6 : 0) + (cd >= 6 && cd < ov - 1 ? .35 : 0) + (Math.abs(cd - ov) <= 1 ? .5 : 0) + (pre ? -.95 : 0);
@@ -3624,12 +3785,6 @@ document.addEventListener('click', e => {
     case 'water': upd(iso, d => d.water = clamp((d.water || 0) + +v, 0, 20)); refreshAfterLog(); break;
     case 'dis': case 'lib': case 'sex': case 'ovt': { const val = a === 'lib' || a === 'ovt' ? +v : v; upd(iso, d => d[a] = d[a] === val ? 0 : val); refreshAfterLog(); break; }
     case 'nextPrompt': state.pOff++; renderLog(); break;
-    case 'addSymQuick': case 'addTagQuick': {
-      const l = (prompt(a === 'addSymQuick' ? 'Name des Symptoms' : 'Name des Einflusses') || '').trim(); if (!l) return;
-      const list = a === 'addSymQuick' ? DB.settings.customSymptoms : DB.settings.customTags; const id = newId(l); list.push({ id, l });
-      if (a === 'addSymQuick') upd(iso, d => { d.sym = d.sym || {}; d.sym[id] = 1; }); else upd(iso, d => { d.tags = (d.tags || []).concat(id); });
-      refreshAfterLog(); break;
-    }
     case 'delDay': if (confirm('Alle Angaben für diesen Tag löschen?')) { delete DB.days[iso]; save(); refreshAfterLog(); toast('Gelöscht'); } break;
     case 'setFlow': upd(v, d => d.flow = +el.dataset.f); closeSheet(); toast(+el.dataset.f ? 'Periode eingetragen' : 'Blutung entfernt'); break;
     case 'calEdit': state.calEdit = !state.calEdit; { const y = scrollY; render(); scrollTo(0, y); } break;
@@ -3640,9 +3795,6 @@ document.addEventListener('click', e => {
     case 'metric': state.metric = v; { const y = scrollY; render(); scrollTo(0, y); } break;
     case 'step': { const k = el.dataset.k; DB.settings[k] = clamp(DB.settings[k] + +v, +el.dataset.min, +el.dataset.max); save(); renderSettings(); break; }
     case 'mod': DB.settings.modules[v] = !DB.settings.modules[v]; save(); renderSettings(); break;
-    case 'addSym': case 'addTag': { const inp = $(a === 'addSym' ? '#newSym' : '#newTag'); const l = inp.value.trim(); if (!l) return; (a === 'addSym' ? DB.settings.customSymptoms : DB.settings.customTags).push({ id: newId(l), l }); save(); renderSettings(); break; }
-    case 'delSym': DB.settings.customSymptoms = DB.settings.customSymptoms.filter(s => s.id !== v); save(); renderSettings(); break;
-    case 'delTag': DB.settings.customTags = DB.settings.customTags.filter(s => s.id !== v); save(); renderSettings(); break;
     case 'export': exportData(); break;
     case 'import': $('#importFile').click(); break;
     case 'loadDemo': loadDemo(); if (state.sheet) closeSheet(); else render(); break;
