@@ -1116,7 +1116,7 @@ function renderSettings() {
     <div class="row"><input class="inp" id="newSym" placeholder="z. B. Kiefer verspannt"><button class="btn sm dark" data-a="addSym">Hinzufügen</button></div></div>
   <div class="card"><h3>Eigene Einflüsse</h3><div class="chips" style="margin-bottom:10px">${S.customTags.map(s => `<span class="chip">${esc(s.l)}<button class="x" data-a="delTag" data-v="${s.id}" aria-label="Entfernen">×</button></span>`).join('') || '<span class="note">Noch keine</span>'}</div>
     <div class="row"><input class="inp" id="newTag" placeholder="z. B. Sauna"><button class="btn sm dark" data-a="addTag">Hinzufügen</button></div></div>
-  <div class="card"><h3>Daten</h3><p class="note" style="margin-top:-6px">Alles liegt nur auf diesem Gerät im Browser-Speicher. Sichere regelmäßig, zum Beispiel in iCloud Drive.${S.lastBackup ? ` Letzte Sicherung: ${dShort(S.lastBackup)}.` : ''}</p>
+  <div class="card"><h3>Daten</h3><p class="note" style="margin-top:-6px">Alles liegt nur auf diesem Gerät im Browser-Speicher. Sichere regelmäßig, zum Beispiel in iCloud Drive. Sicherungen werden mit einem Passwort verschlüsselt.${S.lastBackup ? ` Letzte Sicherung: ${dShort(S.lastBackup)}.` : ''}</p>
     <button class="btn dark" data-a="export">Sicherung exportieren</button>
     <button class="btn ghost" style="margin-top:10px" data-a="import">Sicherung importieren</button>
     <button class="btn soft" style="margin-top:10px" data-a="${S.demo ? 'clearDemo' : 'loadDemo'}">${S.demo ? 'Beispieldaten entfernen' : 'Beispieldaten laden'}</button>
@@ -3400,19 +3400,107 @@ function loadDemo() {
   toast('Beispieldaten geladen');
 }
 
-// ---------- Export und Import
-async function exportData() {
-  const name = `gezeiten-sicherung-${todayISO()}.json`;
-  const file = new File([JSON.stringify(DB)], name, { type: 'application/json' });
-  DB.settings.lastBackup = todayISO(); save();
+// ---------- Export und Import (verschlüsselt: PBKDF2-SHA256 + AES-256-GCM, nur mit Passwort lesbar)
+const KDF_ITER = 600000;
+const b64e = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const b64d = str => Uint8Array.from(atob(str), c => c.charCodeAt(0));
+async function gzip(u8, back) {
+  if (typeof CompressionStream === 'undefined') return null;
+  const cs = back ? new DecompressionStream('gzip') : new CompressionStream('gzip');
+  return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(cs)).arrayBuffer());
+}
+async function deriveKey(pw, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw.normalize('NFC')), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iter }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function encryptBackup(obj, pw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  let data = new TextEncoder().encode(JSON.stringify(obj)); const z = await gzip(data); if (z) data = z;
+  const head = { app: 'gezeiten', v: 2, kdf: 'PBKDF2-SHA256', iter: KDF_ITER, enc: 'AES-256-GCM', gz: !!z, salt: b64e(salt), iv: b64e(iv), date: todayISO() };
+  const key = await deriveKey(pw, salt, KDF_ITER);
+  const ad = new TextEncoder().encode(`gezeiten|2|${head.iter}|${head.gz}`);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: ad }, key, data));
+  return { ...head, data: b64e(ct) };
+}
+async function decryptBackup(f, pw) {
+  const key = await deriveKey(pw, b64d(f.salt), f.iter);
+  const ad = new TextEncoder().encode(`gezeiten|${f.v}|${f.iter}|${f.gz}`);
+  let pt = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(f.iv), additionalData: ad }, key, b64d(f.data)));
+  if (f.gz) pt = await gzip(pt, true);
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function backupSheet(mode, msg) {
+  state.sheet = 'backup'; state.bkMode = mode;
+  const back = `<button class="btn sm" data-a="bkBack">Zurück</button>`;
+  let h = '';
+  if (mode === 'export') h = `<div class="sheet-head"><div class="t"><div class="serif">Sicherung verschlüsseln</div></div>${back}</div>
+    <p class="note">Die Sicherung wird mit deinem Passwort verschlüsselt. Ohne das Passwort lässt sie sich nicht öffnen, auch nicht von dir. Es wird nirgends gespeichert.</p>
+    <div class="field-l">Passwort</div><input class="inp" type="password" id="bkPw" autocomplete="new-password" minlength="10">
+    <div class="field-l">Passwort wiederholen</div><input class="inp" type="password" id="bkPw2" autocomplete="new-password">
+    ${msg ? `<p class="note" style="color:var(--men);margin-top:10px">${msg}</p>` : ''}
+    <button class="btn dark" style="margin-top:18px" data-a="bkEncrypt">Verschlüsseln</button>`;
+  if (mode === 'ready') h = `<div class="sheet-head"><div class="t"><div class="serif">Sicherung bereit</div></div>${back}</div>
+    <p class="note">Verschlüsselt mit AES-256. Lege die Datei zum Beispiel in iCloud Drive ab.</p>
+    <button class="btn dark" style="margin-top:14px" data-a="bkSave">Sicherung speichern</button>`;
+  if (mode === 'import') h = `<div class="sheet-head"><div class="t"><div class="serif">Sicherung öffnen</div></div>${back}</div>
+    <p class="note">Gib das Passwort ein, mit dem die Sicherung${state.bkFile && state.bkFile.date ? ` vom ${dShort(state.bkFile.date)}` : ''} erstellt wurde.</p>
+    <div class="field-l">Passwort</div><input class="inp" type="password" id="bkPwI" autocomplete="current-password">
+    ${msg ? `<p class="note" style="color:var(--men);margin-top:10px">${msg}</p>` : ''}
+    <button class="btn dark" style="margin-top:18px" data-a="bkDecrypt">Entschlüsseln und importieren</button>`;
+  const s = $('#sheet'); s.innerHTML = h; s.scrollTop = 0;
+  const f = s.querySelector('input'); if (f) setTimeout(() => f.focus(), 350);
+}
+function openBackupSheet(mode) { if (!$('#sheetWrap').classList.contains('open')) showSheet('', true); backupSheet(mode); }
+function exportData() { openBackupSheet('export'); }
+async function doEncrypt(btn) {
+  const pw = $('#bkPw').value, pw2 = $('#bkPw2').value;
+  if (pw.length < 10) return backupSheet('export', 'Bitte mindestens 10 Zeichen verwenden.');
+  if (pw !== pw2) return backupSheet('export', 'Die Passwörter stimmen nicht überein.');
+  btn.disabled = true; btn.textContent = 'Wird verschlüsselt';
+  try {
+    const enc = await encryptBackup(DB, pw);
+    state.bkOut = new File([JSON.stringify(enc)], `gezeiten-sicherung-${todayISO()}.json`, { type: 'application/json' });
+    backupSheet('ready');
+  } catch (e) { backupSheet('export', 'Verschlüsseln hat nicht geklappt. Dieses Gerät unterstützt die nötige Verschlüsselung womöglich nicht.'); }
+}
+async function doSave() {
+  const file = state.bkOut; if (!file) return;
+  const done = () => { DB.settings.lastBackup = todayISO(); save(); state.bkOut = null; toast('Sicherung erstellt'); state.sheet = 'settings'; renderSettings(); render(); };
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'Gezeiten Sicherung' }); toast('Sicherung erstellt'); render(); if (state.sheet === 'settings') renderSettings(); return; }
+    try { await navigator.share({ files: [file], title: 'Gezeiten Sicherung' }); done(); return; }
     catch (e) { if (e.name === 'AbortError') return; }
   }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-  toast('Sicherung erstellt'); render(); if (state.sheet === 'settings') renderSettings();
+  done();
 }
+function applyImport(d) {
+  if (!d || typeof d.days !== 'object' || !d.settings) throw new Error('Format');
+  if (!confirm(`Sicherung mit ${Object.keys(d.days).length} Tagen importieren? Deine aktuellen Daten werden ersetzt.`)) return false;
+  localStorage.setItem(LS_KEY, JSON.stringify(d)); DB = loadDB(); DB.settings.onboarded = true; save();
+  toast('Sicherung importiert'); return true;
+}
+async function doDecrypt(btn) {
+  const pw = $('#bkPwI').value; if (!pw) return;
+  btn.disabled = true; btn.textContent = 'Wird entschlüsselt';
+  let d;
+  try { d = await decryptBackup(state.bkFile, pw); }
+  catch (e) { return backupSheet('import', 'Das Passwort passt nicht, oder die Datei ist beschädigt.'); }
+  try { if (applyImport(d)) { state.bkFile = null; closeSheet(); } else backupSheet('import'); }
+  catch (e) { backupSheet('import', 'Die Datei enthält keine gültige Sicherung.'); }
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-a]'); if (!el) return;
+  const a = el.dataset.a;
+  if (a === 'bkEncrypt') doEncrypt(el);
+  if (a === 'bkSave') doSave();
+  if (a === 'bkDecrypt') doDecrypt(el);
+  if (a === 'bkBack') { state.bkOut = null; state.bkFile = null; if (typeof renderSettings === 'function') { state.sheet = 'settings'; renderSettings(); } else closeSheet(); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || state.sheet !== 'backup') return;
+  const b = document.querySelector(state.bkMode === 'import' ? '[data-a=bkDecrypt]' : '[data-a=bkEncrypt]'); if (b) b.click();
+});
 $('#healthFile').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   const r = importHealthText(await f.text());
@@ -3420,13 +3508,11 @@ $('#healthFile').addEventListener('change', async e => {
 });
 $('#importFile').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try {
-    const d = JSON.parse(await f.text());
-    if (!d || typeof d.days !== 'object' || !d.settings) throw new Error('Format');
-    if (!confirm(`Sicherung mit ${Object.keys(d.days).length} Tagen importieren? Deine aktuellen Daten werden ersetzt.`)) return;
-    localStorage.setItem(LS_KEY, JSON.stringify(d)); DB = loadDB(); DB.settings.onboarded = true; save();
-    toast('Sicherung importiert'); if (state.sheet === 'settings') renderSettings(); render();
-  } catch (err) { toast('Datei konnte nicht gelesen werden'); }
+  let d;
+  try { d = JSON.parse(await f.text()); } catch (err) { toast('Datei konnte nicht gelesen werden'); return; }
+  if (d && d.app === 'gezeiten' && d.data && d.salt) { state.bkFile = d; openBackupSheet('import'); return; }
+  // ältere, unverschlüsselte Sicherungen lassen sich weiterhin einlesen
+  try { if (applyImport(d)) { if (state.sheet === 'settings') renderSettings(); render(); } } catch (err) { toast('Datei konnte nicht gelesen werden'); }
 });
 
 // ---------- Aktionen
