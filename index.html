@@ -376,6 +376,9 @@ details.more>summary::-webkit-details-marker{display:none}details.more[open]>sum
 .cbtn{flex:none;width:36px;height:40px;border:0;border-radius:12px;background:var(--sand);color:var(--ink2);font:inherit;font-size:16px}
 .cbtn:disabled{opacity:.35}
 .cgroup{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+input[type=date].inp{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;max-width:100%;min-height:46px;line-height:1.3;text-align:left}
+input[type=date].inp::-webkit-date-and-time-value{text-align:left;margin:0}
+input[type=date].inp::-webkit-calendar-picker-indicator{margin-left:auto}
 </style>
 </head>
 <body>
@@ -793,7 +796,7 @@ function heroCard(i, c, t) {
   const L = i.len, o = i.ovuDay, S = 4, N = (L - 1) * S + 1, H = [], phs = [];
   for (let k = 0; k < N; k++) { const d = 1 + k / S; H.push(hormones(d, o, L)); phs.push(mkInfo(Math.round(d), L, i.menEnd, o, false, '', '').phase); }
   const W = 360, TOP = 14, BOT = 128, X = k => 8 + k / (N - 1) * (W - 16), Y = v => BOT - v / 1.06 * (BOT - TOP);
-  const HSER = [['fsh', '#9AAAB8', 'FSH', 1.8], ['lh', '#C47A6C', 'LH', 1.8], ['p', '#5E5B3F', 'Progesteron', 2.4], ['e', '#D98426', 'Östrogen', 2.4]];
+  const HSER = [['t', '#9AAAB8', 'Testosteron', 2.2], ['p', '#5E5B3F', 'Progesteron', 2.4], ['e', '#D98426', 'Östrogen', 2.4]];
   // Kurven über den Rand hinaus weiterrechnen, damit sie an beiden Enden weich auslaufen statt abzuknicken
   const E = S * 4, HX = []; for (let k = -E; k < N + E; k++) HX.push([X(k), hormones(1 + k / S, o, L)]);
   const path = key => { const P = HX.map(([x, h]) => [x, Y(h[key])]); let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`; for (let k = 0; k < P.length - 1; k++) { const p0 = P[k - 1] || P[k], p1 = P[k], p2 = P[k + 1], p3 = P[k + 2] || p2; d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`; } return d; };
@@ -916,7 +919,9 @@ function hormones(d, o, L) {
     e: .12 + .85 * ag(d, o - 1, 4.4, 2.0) + .42 * ag(d, o + 7, 3.2, 3.4),
     p: .04 + .92 * ag(d, o + 7, 3, 3.6),
     lh: .1 + .88 * ag(d, o - 1, .9, .9),
-    fsh: .2 + .16 * ag(d, 2, 2.5, 2.5) + .32 * ag(d, o - 1, 1, 1) + .12 * ag(d, L + 1, 2.5, 2.5)
+    fsh: .2 + .16 * ag(d, 2, 2.5, 2.5) + .32 * ag(d, o - 1, 1, 1) + .12 * ag(d, L + 1, 2.5, 2.5),
+    // Testosteron: über den Zyklus recht stabil, kleiner Anstieg rund um den Eisprung
+    t: .25 + .2 * ag(d, o - 1, 4.5, 4) - .03 * ag(d, o + 9, 5, 5)
   };
 }
 function forecastCard() {
@@ -1211,13 +1216,31 @@ function hParseNum(s, type) {
   else if ((type === 'steps' || type === 'ex') && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   return parseFloat(s);
 }
+// Datenart aus dem Kennwort oder aus dem Namen, den Kurzbefehle für die Probe liefert (deutsch oder englisch)
+function hType(raw) {
+  const k = String(raw || '').toUpperCase().replace(/[^A-ZÄÖÜ]/g, '');
+  if (H_TYPES[k]) return H_TYPES[k];
+  const s = String(raw || '').toLowerCase();
+  if (/temperat/.test(s)) return 'wtemp';
+  if (/variab|hrv/.test(s)) return 'hrv';
+  if (/ruhe.*herz|ruhepuls|resting/.test(s)) return 'rhr';
+  if (/schritt|step/.test(s)) return 'steps';
+  if (/training|exercise|bewegungsminut/.test(s)) return 'ex';
+  if (/menstru|periode|period/.test(s)) return 'period';
+  if (/schlaf|sleep/.test(s)) return 'sleep';
+  return null;
+}
+const H_MON = { jan: 1, feb: 2, mär: 3, maer: 3, mrz: 3, mar: 3, apr: 4, mai: 5, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, dez: 12, dec: 12 };
 function hParseDate(s) {
   s = String(s || '').trim();
   if (!s) return null;
+  // z. B. „24. Okt. 2026 um 07:30“ oder „24. Oktober 2026, 07:30“
+  const mm = s.match(/(\d{1,2})\.?\s*([A-Za-zÄÖÜäöü]{3,})\.?\s*(\d{4})(?:[,\s]+(?:um\s)?(\d{1,2}):(\d{2}))?/);
+  if (mm) { const mo = H_MON[mm[2].toLowerCase().slice(0, 3)] || H_MON[mm[2].toLowerCase().slice(0, 4)]; if (mo) return new Date(+mm[3], mo - 1, +mm[1], mm[4] ? +mm[4] : 12, mm[5] ? +mm[5] : 0); }
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) { const d = new Date(s.length === 10 ? s + 'T12:00:00' : s); return isNaN(d) ? null : d; }
   const m = s.match(/(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{2,4})(?:[,\s]+(?:um\s)?(\d{1,2}):(\d{2}))?/);
   if (m) { const y = +m[3] < 100 ? 2000 + +m[3] : +m[3]; return new Date(y, +m[2] - 1, +m[1], m[4] ? +m[4] : 12, m[5] ? +m[5] : 0); }
-  const d = new Date(s); return isNaN(d) ? null : d;
+  const d = new Date(s.replace(/\u202f|\u00a0/g, ' ').replace(/ at | um /, ' ')); return isNaN(d) ? null : d;
 }
 const nightKey = d => toISO(new Date(d.getTime() + 4 * 3600e3));
 function sleepKind(v) {
@@ -1252,7 +1275,7 @@ function importHealthText(text) {
   for (const line of lines) {
     if (/^GEZEITEN/i.test(line)) continue;
     const parts = line.split(/[;\t|]/).map(x => x.trim());
-    const type = H_TYPES[(parts[0] || '').toUpperCase().replace(/[^A-ZÄÖÜ]/g, '')];
+    const type = hType(parts[0]);
     if (!type || parts.length < 3) { res.skipped++; continue; }
     const start = hParseDate(parts[1]); const end = parts.length >= 4 ? hParseDate(parts[2]) || start : start;
     const raw = parts.length >= 4 ? parts[3] : parts[2];
@@ -1342,18 +1365,25 @@ function renderHealth(r) {
   if (r) h += `<div class="banner" style="background:${r.lines ? 'var(--tFol)' : 'var(--tMen)'}"><div>${healthResultMsg(r)}</div></div>`;
   h += `<div class="card"><h3>Daten übernehmen</h3><p class="muted" style="margin-top:-6px">Führe zuerst den Kurzbefehl aus. Er kopiert die Werte in die Zwischenablage.</p>
     <button class="btn" data-a="healthClip">Aus Zwischenablage übernehmen</button>
-    <div class="field-l" style="margin-top:18px">Oder Text hier einfügen</div><textarea id="healthText" placeholder="SCHLAF;2026-10-22T23:40:00+02:00;2026-10-23T03:10:00+02:00;Kern"></textarea>
+    <div class="field-l" style="margin-top:18px">Oder Text hier einfügen</div><textarea id="healthText" placeholder="Schlafanalyse;2026-10-22T23:40:00+02:00;2026-10-23T03:10:00+02:00;Kern"></textarea>
     <div class="row" style="margin-top:10px"><button class="btn sm dark" data-a="healthPaste">Text übernehmen</button><button class="btn sm ghost" data-a="healthFile">Datei wählen</button></div></div>`;
-  h += `<div class="card"><h3>Kurzbefehl einrichten</h3><p class="muted" style="margin-top:-6px">Einmalig, dauert etwa zehn Minuten. Du brauchst nur die Datenarten, die du möchtest.</p>
-    ${step(1, `Öffne die App <b>Kurzbefehle</b>, tippe auf <b>+</b> und nenne den Kurzbefehl „Gezeiten Health“.`)}
-    ${step(2, `Füge die Aktion <b>Health-Stichproben suchen</b> hinzu. Stelle ein: <b>Typ</b> ist <b>Schlafanalyse</b>, <b>Startdatum</b> liegt in den letzten <b>3 Tagen</b>, <b>Limit</b> aus.`)}
-    ${step(3, `Füge <b>Wiederholen mit jedem</b> hinzu. Darin eine <b>Text</b>-Aktion mit genau diesem Inhalt:<br>${code('SCHLAF;Startdatum;Enddatum;Wert')}<br>Ersetze Startdatum, Enddatum und Wert jeweils durch die Variable <b>Wiederholungsobjekt</b>: antippen und die passende Eigenschaft wählen. Bei beiden Datumsfeldern unter <b>Datumsformat</b> „ISO 8601“ wählen und die Uhrzeit einschließen.`)}
-    ${step(4, `Direkt danach, noch innerhalb der Wiederholung: <b>Zu Variable hinzufügen</b>, Variable <b>Health</b>.`)}
-    ${step(5, `Wiederhole Schritt 2 bis 4 für weitere Daten. Bei Schritten und Training in der Suche <b>Gruppieren nach: Tag</b> einstellen, damit iPhone und Watch nicht doppelt zählen. Kennwörter am Zeilenanfang:<br>
-      ${code('SCHRITTE')} Typ Schritte<br>${code('TRAINING')} Typ Trainingsminuten<br>${code('RUHEPULS')} Typ Ruheherzfrequenz<br>${code('HRV')} Typ Herzfrequenzvariabilität<br>${code('HANDGELENK')} Typ Temperatur am Handgelenk beim Schlafen<br>${code('PERIODE')} Typ Menstruation`)}
-    ${step(6, `Ganz am Ende: <b>Text kombinieren</b> mit der Variable <b>Health</b> und <b>Neue Zeilen</b> als Trennzeichen, danach <b>In Zwischenablage kopieren</b>.`)}
-    ${step(7, `Optional, damit es von selbst läuft: Tab <b>Automation</b>, neue persönliche Automation <b>Tageszeit</b>, zum Beispiel 7:30 Uhr, <b>Sofort ausführen</b> wählen und den Kurzbefehl starten lassen. Morgens öffnest du dann Gezeiten und tippst auf <b>Aktualisieren</b>.`)}
-    <p class="note" style="margin:10px 0 0">Beim ersten Lauf fragt iOS, ob der Kurzbefehl auf Health zugreifen darf. Die Daten gehen nur über die Zwischenablage in diese App, nirgendwohin sonst. Periodentage aus Health werden nur übernommen, wenn du für den Tag selbst nichts eingetragen hast.</p></div>`;
+  const part = t => `<div class="field-l" style="margin:16px 0 2px">${t}</div>`;
+  h += `<div class="card"><h3>Kurzbefehl einrichten</h3><p class="muted" style="margin-top:-6px">Einmalig, etwa zehn Minuten. Füge jede Aktion neu über die Suche hinzu und dupliziere keine, sonst zeigen Kopien leicht auf die falschen Daten.</p>
+    ${part('Anlegen')}
+    ${step(1, `App <b>Kurzbefehle</b> öffnen, unten <b>Kurzbefehle</b>, oben rechts <b>+</b>. Oben auf den Namen tippen, <b>Umbenennen</b>, „Gezeiten Health“.`)}
+    ${part('Daten einsammeln, je Datenart zwei Aktionen')}
+    ${step(2, `Unten im Suchfeld <b>Health-Stichproben suchen</b> eingeben und antippen. In der Aktion das blaue Wort hinter <b>Typ</b> antippen und <b>Schlafanalyse</b> wählen. Dann <b>Filter hinzufügen</b>, <b>Startdatum</b>, <b>ist in den letzten</b>, <b>3 Tage</b>.`)}
+    ${step(3, `Darunter <b>Zu Variable hinzufügen</b>. Als Variablenname <b>Proben</b> eintragen. Davor muss in blau <b>Health-Stichproben</b> stehen.`)}
+    ${step(4, `Schritt 2 und 3 für jede weitere Datenart wiederholen, immer mit dem Variablennamen <b>Proben</b>: <b>Schritte</b>, <b>Trainingsminuten</b>, <b>Ruheherzfrequenz</b>, <b>Herzfrequenzvariabilität</b>, <b>Temperatur am Handgelenk beim Schlafen</b>, <b>Menstruation</b>. Bei Schritten und Trainingsminuten zusätzlich in der Suche <b>Gruppieren nach</b> auf <b>Tag</b> stellen, damit iPhone und Watch nicht doppelt zählen.`)}
+    ${part('Ausgeben')}
+    ${step(5, `<b>Wiederholen mit jedem</b> hinzufügen und als Eingabe die Variable <b>Proben</b> wählen.`)}
+    ${step(6, `Zwischen <b>Wiederholen</b> und <b>Wiederholung beenden</b> eine <b>Text</b>-Aktion einfügen. Darin viermal die Variable <b>Wiederholungsobjekt</b> einsetzen, getrennt durch Semikolon, und jeweils antippen, um die Eigenschaft zu wählen: ${code('Typ;Startdatum;Enddatum;Wert')}. Bei Start- und Enddatum unter <b>Datumsformat</b> „ISO 8601“ wählen und <b>Uhrzeit einschließen</b> einschalten.`)}
+    ${step(7, `Unter <b>Wiederholung beenden</b>: <b>Text kombinieren</b> mit <b>Wiederholungsergebnisse</b> und dem Trennzeichen <b>Neue Zeilen</b>. Danach <b>In Zwischenablage kopieren</b>.`)}
+    ${part('Testen')}
+    ${step(8, `Unten rechts auf ▶ tippen. Beim ersten Mal fragt iOS nach dem Zugriff auf Health, dort alle Datenarten erlauben. Danach hier oben <b>Aus Zwischenablage übernehmen</b>. Die Meldung zeigt, welche Datenarten erkannt wurden.`)}
+    ${part('Automatisch, optional')}
+    ${step(9, `In Kurzbefehle unten <b>Automation</b>, <b>+</b>, <b>Tageszeit</b>, zum Beispiel 7:30 Uhr, <b>Sofort ausführen</b>, dann den Kurzbefehl „Gezeiten Health“ wählen. Morgens in Gezeiten auf <b>Aktualisieren</b> tippen.`)}
+    <p class="note" style="margin:10px 0 0">Fehlt eine Datenart, gibt es dafür meist keine Daten in Health (HRV und Temperatur kommen nur von der Apple Watch), oder bei <b>Zu Variable hinzufügen</b> steht die falsche Suche davor. Die Daten gehen nur über die Zwischenablage in diese App. Periodentage aus Health werden nur übernommen, wenn du für den Tag selbst nichts eingetragen hast.</p></div>`;
   if (n) h += `<button class="link" style="color:var(--men);display:block;margin:4px auto 0" data-a="healthClear">Alle Health-Daten aus Gezeiten löschen</button>`;
   const s = $('#sheet'), st = s.scrollTop; s.innerHTML = h; s.scrollTop = r ? 0 : st;
 }
@@ -1382,7 +1412,7 @@ const PHASE_INFO = {
     lead: 'Der erste Tag der Blutung ist Tag 1 deines Zyklus. Die meisten bluten drei bis fünf Tage, drei bis sieben gelten als normal.',
     parts: [
       ['Was im Körper passiert', 'Ist im letzten Zyklus keine Schwangerschaft entstanden, bildet sich der Gelbkörper zurück. Östrogen und Progesteron fallen ab, und die Gebärmutter stößt die aufgebaute Schleimhaut ab. Dafür zieht sie sich zusammen, ausgelöst durch Prostaglandine, hormonähnliche Botenstoffe. Über die ganze Periode gehen etwa zwei bis drei Esslöffel Blut verloren.'],
-      ['Hormone', 'Gesteuert wird der Zyklus von vier Hormonen. FSH und LH bildet die Hirnanhangdrüse an der Basis des Gehirns, angestoßen von Signalen aus dem Hypothalamus. Östrogen und Progesteron entstehen vor allem in den Eierstöcken.\n\nIhr Abfall am Ende des letzten Zyklus war das Signal für den Abbau der Schleimhaut, jetzt sind beide auf ihrem Tiefpunkt. FSH beginnt bereits wieder zu steigen und regt in den Eierstöcken neue Follikel zum Wachsen an. Der nächste Zyklus läuft also schon während der Blutung an.'],
+      ['Hormone', 'Gesteuert wird der Zyklus vor allem von vier Hormonen. FSH und LH bildet die Hirnanhangdrüse an der Basis des Gehirns, angestoßen von Signalen aus dem Hypothalamus. Östrogen und Progesteron entstehen vor allem in den Eierstöcken. Dazu kommt Testosteron, das bei Frauen in kleinen Mengen in den Eierstöcken und den Nebennieren gebildet wird.\n\nIhr Abfall am Ende des letzten Zyklus war das Signal für den Abbau der Schleimhaut, jetzt sind beide auf ihrem Tiefpunkt. FSH beginnt bereits wieder zu steigen und regt in den Eierstöcken neue Follikel zum Wachsen an. Der nächste Zyklus läuft also schon während der Blutung an. Testosteron bleibt in diesen Tagen auf seinem üblichen, niedrigen Niveau.'],
       ['Körperlich spürbar', 'Krämpfe im Unterbauch, die bis in Rücken und Oberschenkel ziehen können. Sie beginnen oft ein bis drei Tage vor der Blutung, sind etwa einen Tag nach Beginn am stärksten und klingen nach zwei bis drei Tagen ab. Je mehr Prostaglandine, desto stärker die Krämpfe. Häufig sind auch Müdigkeit, Kopfschmerzen, Blähungen oder weicher Stuhl.'],
       ['Gefühle und Psyche', 'Prämenstruelle Beschwerden wie Reizbarkeit, Anspannung oder Gedrücktheit lassen meist schon wenige Stunden nach Beginn der Blutung nach, und auch der Schlaf wird wieder ruhiger. Viele erleben das als Erleichterung. Gleichzeitig können Schmerzen und niedrige Energie die Stimmung drücken und den Wunsch nach Ruhe und Rückzug verstärken. Ob die Periode für dich eher entlastend oder belastend ist, zeigt sich am besten in deinen eigenen Einträgen.']
     ],
@@ -1392,7 +1422,7 @@ const PHASE_INFO = {
     lead: 'Die Follikelphase beginnt schon am ersten Tag der Periode und endet mit dem Eisprung. Sie ist der variable Teil des Zyklus: Ist ein Zyklus länger oder kürzer als sonst, liegt das meist an ihr, zum Beispiel durch Stress oder Krankheit.',
     parts: [
       ['Was im Körper passiert', 'In den Eierstöcken wachsen mehrere Follikel heran, kleine flüssigkeitsgefüllte Bläschen mit je einer unreifen Eizelle. Einer überholt die anderen und wird zum dominanten Follikel, dessen Eizelle für den Eisprung reift. Die übrigen bilden sich zurück. Gleichzeitig baut sich die Gebärmutterschleimhaut wieder auf.'],
-      ['Hormone', 'FSH, das follikelstimulierende Hormon, tut, was sein Name sagt: Es bringt die Follikel zum Wachsen und bereitet die Eizellen auf den Eisprung vor. Der dominante Follikel bildet dabei immer mehr Östrogen, in diesen Jahren vor allem in Form von Estradiol.\n\nÖstrogen lässt die Schleimhaut dicker werden, macht kurz vor dem Eisprung den Zervixschleim dünner, damit Spermien leichter durchkommen, und wirkt darüber hinaus auf Knochen, Haut, Herz und Gehirn. Steigt Östrogen, sinkt FSH wieder, und kurz vor dem Eisprung löst das hohe Östrogen den steilen LH-Anstieg aus.'],
+      ['Hormone', 'FSH, das follikelstimulierende Hormon, tut, was sein Name sagt: Es bringt die Follikel zum Wachsen und bereitet die Eizellen auf den Eisprung vor. Der dominante Follikel bildet dabei immer mehr Östrogen, in diesen Jahren vor allem in Form von Estradiol.\n\nÖstrogen lässt die Schleimhaut dicker werden, macht kurz vor dem Eisprung den Zervixschleim dünner, damit Spermien leichter durchkommen, und wirkt darüber hinaus auf Knochen, Haut, Herz und Gehirn. Steigt Östrogen, sinkt FSH wieder, und kurz vor dem Eisprung löst das hohe Östrogen den steilen LH-Anstieg aus. Auch Testosteron steigt gegen Ende dieser Phase leicht an.'],
       ['Körperlich spürbar', 'Die Energie kehrt zurück, die Haut wird bei vielen klarer. Gegen Ende wird der Ausfluss klar, glitschig und dehnbar, ähnlich wie rohes Eiweiß.'],
       ['Gefühle und Psyche', 'Mit dem steigenden Östrogen berichten viele von besserer Laune, mehr Antrieb und mehr Lust auf Neues und auf andere Menschen. Viele fühlen sich in dieser Zeit auch klarer im Kopf. Messbar ist das allerdings kaum: Eine Meta-Analyse aus über 100 Studien mit fast 4.000 Teilnehmerinnen fand keine verlässlichen Unterschiede in Aufmerksamkeit, Gedächtnis, Kreativität oder anderen Denkleistungen zwischen den Zyklusphasen.']
     ],
@@ -1402,7 +1432,7 @@ const PHASE_INFO = {
     lead: 'Der Eisprung selbst dauert nur Sekunden. Er liegt etwa 14 Tage vor der nächsten Periode, nicht automatisch an Tag 14. Als Phase zählen hier die Tage kurz davor und danach.',
     parts: [
       ['Was im Körper passiert', 'Der gereifte Follikel platzt und gibt die Eizelle frei. Sie wandert in den Eileiter und kann dort etwa 12 bis 24 Stunden befruchtet werden. Spermien überleben drei bis fünf Tage. Deshalb ist das fruchtbare Fenster etwa sechs Tage lang, von rund fünf Tagen vor dem Eisprung bis einen Tag danach.'],
-      ['Hormone', 'LH, das luteinisierende Hormon, kommt wie FSH aus der Hirnanhangdrüse. Sein steiler Anstieg löst den Eisprung aus. Genau diesen Anstieg misst ein Ovulationstest, der Eisprung folgt dann meist innerhalb von 36 Stunden.\n\nDanach sorgt LH dafür, dass der leere Follikel zum Gelbkörper wird und Progesteron bildet, daher auch der Name, denn lateinisch luteus heißt gelb. Östrogen erreicht kurz vor dem Eisprung seinen Höchststand und fällt danach ab, FSH zeigt einen kleinen Gipfel.'],
+      ['Hormone', 'LH, das luteinisierende Hormon, kommt wie FSH aus der Hirnanhangdrüse. Sein steiler Anstieg löst den Eisprung aus. Genau diesen Anstieg misst ein Ovulationstest, der Eisprung folgt dann meist innerhalb von 36 Stunden.\n\nDanach sorgt LH dafür, dass der leere Follikel zum Gelbkörper wird und Progesteron bildet, daher auch der Name, denn lateinisch luteus heißt gelb. Östrogen erreicht kurz vor dem Eisprung seinen Höchststand und fällt danach ab, FSH zeigt einen kleinen Gipfel.\n\nTestosteron ist rund um den Eisprung am höchsten, der Anstieg fällt aber deutlich kleiner aus als bei Östrogen. Viele spüren in dieser Zeit mehr Lust. Wie viel davon auf Testosteron und wie viel auf Östrogen zurückgeht, ist in der Forschung nicht eindeutig geklärt.'],
       ['Körperlich spürbar', 'Klarer, dehnbarer Ausfluss, bei manchen ein einseitiges Ziehen im Unterbauch, der sogenannte Mittelschmerz. Dazu empfindliche Brüste, eine leichte Schmierblutung oder ein feinerer Geruchssinn. Die Basaltemperatur steigt erst nach dem Eisprung an und bestätigt ihn rückblickend. Nicht alle merken etwas davon.'],
       ['Gefühle und Psyche', 'In einer großen Tagebuchstudie mit über 38.000 Tageseinträgen fühlten sich Frauen in den fruchtbaren Tagen attraktiver und hatten mehr Lust auf Sex. Auch Selbstwert und Stimmung lagen etwas höher, dieser Effekt war aber weniger eindeutig. Manche erleben rund um den Eisprung auch kurze Stimmungsschwankungen.']
     ],
@@ -1412,7 +1442,7 @@ const PHASE_INFO = {
     lead: 'Die Zeit vom Eisprung bis zur nächsten Periode. Sie ist recht konstant und dauert im Schnitt 12 bis 14 Tage, 10 bis 17 Tage gelten als normal.',
     parts: [
       ['Was im Körper passiert', 'Aus dem leeren Follikel wird der Gelbkörper, das Corpus luteum. Er bildet Progesteron und etwas Östrogen. Progesteron macht die Gebärmutterschleimhaut bereit für eine Einnistung und den Zervixschleim wieder dick und zäh. Entsteht keine Schwangerschaft, löst sich der Gelbkörper auf, die Hormone fallen ab und die nächste Periode beginnt.'],
-      ['Hormone', 'Progesteron bereitet die Gebärmutter auf eine mögliche Schwangerschaft vor, sein Name bedeutet sinngemäß „für die Schwangerschaft“. Es erreicht etwa eine Woche nach dem Eisprung seinen Höchststand, Östrogen steigt zur gleichen Zeit ein zweites Mal leicht an.\n\nProgesteron bremst außerdem die Ausschüttung von FSH, sodass in dieser Zeit keine neuen Follikel heranreifen. Es hilft, die Blutung zu regulieren, und beeinflusst die Stimmung. In den letzten Tagen fallen Progesteron und Östrogen deutlich ab.'],
+      ['Hormone', 'Progesteron bereitet die Gebärmutter auf eine mögliche Schwangerschaft vor, sein Name bedeutet sinngemäß „für die Schwangerschaft“. Es erreicht etwa eine Woche nach dem Eisprung seinen Höchststand, Östrogen steigt zur gleichen Zeit ein zweites Mal leicht an.\n\nProgesteron bremst außerdem die Ausschüttung von FSH, sodass in dieser Zeit keine neuen Follikel heranreifen. Es hilft, die Blutung zu regulieren, und beeinflusst die Stimmung. In den letzten Tagen fallen Progesteron und Östrogen deutlich ab. Testosteron kehrt nach dem Eisprung auf sein Ausgangsniveau zurück.'],
       ['Körperlich spürbar', 'Die Körpertemperatur liegt nach dem Eisprung etwa 0,2 bis 0,5 °C höher. In einer Studie mit Wearables lag der Puls im Schlaf ab der Mitte dieser Phase um rund 2,5 Schläge pro Minute höher als während der Periode, die Hauttemperatur um etwa 0,2 °C. Gegen Ende sind Brustspannen, Blähungen, Wassereinlagerungen, Hautunreinheiten und Heißhunger häufig. In der Woche vor der Periode wird der Schlaf oft leichter und unruhiger.'],
       ['Gefühle und Psyche', 'Aus Progesteron entsteht im Körper Allopregnanolon. Es verstärkt die Wirkung von GABA, dem wichtigsten dämpfenden Botenstoff im Gehirn, und sein Spiegel steigt bis zur Mitte dieser Phase stark an. In den letzten Tagen fällt er rasch wieder ab. Die meisten spüren davon wenig, manche reagieren aber empfindlich auf diesen Abfall: mit Reizbarkeit, Anspannung, Ängstlichkeit, Niedergeschlagenheit oder dem Gefühl, dünnhäutiger zu sein. Nach heutigem Stand liegt das weniger an ungewöhnlichen Hormonwerten als an einer unterschiedlichen Empfindlichkeit des Gehirns.\n\nSolche Beschwerden beginnen meist wenige Stunden bis fünf Tage vor der Periode. Eine schwere Form, die prämenstruelle dysphorische Störung, betrifft etwa 2 bis 6 Prozent.\n\nZur Einordnung: In einer Tagebuchstudie über sechs Monate prägten Stress, körperliches Befinden und Unterstützung durch andere die tägliche Stimmung deutlich stärker als die Zyklusphase.']
     ],
@@ -2359,7 +2389,8 @@ const GSCALE = { clover: .6, daisy: .6, mushroom: .6, dandelion: .7, tulip: .8, 
   fence: 1.3, lantern: 1.25, birdbath: 1.3, blanket: 1.2, bench: 1.2, birdhouse: 1.3, well: 1.4, greenhouse: 1.5, house: 1 };
 const DUCK_K = .62;
 const GBIG = { house: 30, greenhouse: 28, well: 21, appletree: 18, blanket: 26 };
-const SEED_CAP = 5; // höchstens so viele Samen pro Tag
+const SEED_CAP = 8; // höchstens so viele Samen pro Tag
+const PET_SEEDS = 2; // Samen fürs Streicheln pro Tag (je eine volle Kuschelrunde)
 // Accessoires: [id, Name, Samen, Platz]
 const ACC = [
   ['bow', 'Schleife', 20, 'head'], ['party', 'Partyhut', 25, 'head'], ['beanie', 'Mütze', 35, 'head'], ['wreath', 'Blumenkranz', 40, 'head'], ['souwester', 'Südwester', 45, 'head'], ['straw', 'Strohhut', 50, 'head'], ['phones', 'Kopfhörer', 70, 'head'], ['crown', 'Krone', 150, 'head'],
@@ -2390,7 +2421,21 @@ const gs = { duck: { x: 150, y: 220, tx: 150, ty: 220, mode: 'idle', until: 0, d
   pets: [], hog: 30, bubbleUntil: 0, happyUntil: 0, run: false, last: 0, fr: {}, food: [], foodV: 0, frHappy: {} };
 
 function gMoments() { const m = moments(); const t = todayISO(); return { total: Object.values(m).reduce((a, b) => a + b, 0), week: Object.entries(m).filter(([k]) => k > addDays(t, -7) && k <= t).reduce((a, [, v]) => a + v, 0) }; }
-function gEarned() { return Object.values(moments()).reduce((a, b) => a + Math.min(b, SEED_CAP), 0); }
+// Samen pro Tag: Momente für dich plus Füttern und Streicheln, zusammen höchstens SEED_CAP
+function gDaySeeds() {
+  const m = Object.assign({}, moments()), P = (KR().garden || {}).play || {};
+  Object.entries(P).forEach(([d, x]) => { m[d] = (m[d] || 0) + (x.f || 0) + (x.p || 0); });
+  return m;
+}
+function gEarned() { return Object.values(gDaySeeds()).reduce((a, b) => a + Math.min(b, SEED_CAP), 0); }
+function gPlaySeed(kind) {
+  const G = GD(), t = todayISO(); G.play = G.play || {};
+  const before = Math.min(gDaySeeds()[t] || 0, SEED_CAP);
+  const x = G.play[t] = G.play[t] || { f: 0, p: 0 };
+  if (kind === 'p' && x.p >= PET_SEEDS) return false;
+  x[kind]++; save();
+  return before < SEED_CAP;
+}
 function gSeeds() { return Math.max(0, gEarned() - GD().spent); }
 function gTime() { const h = new Date().getHours() + new Date().getMinutes() / 60; return h >= 21.5 || h < 6 ? 'night' : h >= 18.5 ? 'dusk' : 'day'; }
 function gSeasonKey() { const i = info(todayISO()); return i ? i.phase : 'fol'; }
@@ -2932,6 +2977,7 @@ function gHearts(x, y) {
     setTimeout(() => fx.querySelectorAll('.gheart').forEach(h => h.remove()), 1600);
   });
 }
+function gSeedPill() { const p = document.querySelector('.gf-pill'); if (p) p.innerHTML = `${GI.seed}${gSeeds()} Samen`; }
 function gLabel(x, y, text) {
   const w = Math.round(text.length * 4.9 + 20);
   document.querySelectorAll('.gfx').forEach(fx => { fx.querySelectorAll('.glab').forEach(l => l.remove()); fx.insertAdjacentHTML('beforeend', `<g class="glab" transform="translate(${clamp(x, w / 2 + 4, 356 - w / 2)} ${y})"><rect x="${-w / 2}" y="-14" width="${w}" height="18" rx="9" fill="#FBF8F2" stroke="#E3DACA"/><text x="0" y="-2" text-anchor="middle" style="font-size:9px;fill:#5F5A4B">${text}</text></g>`); setTimeout(() => fx.querySelectorAll('.glab').forEach(l => l.remove()), 2200); });
@@ -2943,7 +2989,7 @@ function gPet() {
   gs.pets = gs.pets.filter(t => now - t < 10 * 60000).concat(now);
   gs.happyUntil = performance.now() + 900;
   gHearts(gs.duck.x, gs.duck.y - 28);
-  if (gs.pets.length >= 6) { G.petLock = now + 10 * 60000; gs.pets = []; save(); setTimeout(() => gBubble('Das war schön. Jetzt eine kleine Pause', 3000), 900); }
+  if (gs.pets.length >= 6) { G.petLock = now + 10 * 60000; gs.pets = []; save(); const got = gPlaySeed('p'); setTimeout(() => { gBubble('Das war schön. Jetzt eine kleine Pause', 3000); if (got) { gLabel(gs.duck.x, gs.duck.y + 14, '+1 Samen'); gSeedPill(); } }, 900); }
 }
 function feedLeft() { const G = GD(), t = todayISO(); return G.feed && G.feed.d === t ? Math.max(0, FEED_MAX - G.feed.n) : FEED_MAX; }
 function gFeed() {
@@ -2951,6 +2997,7 @@ function gFeed() {
   if (gTime() === 'night') { gBubble('Pssst, sie schläft'); return; }
   if (!feedLeft()) { gBubble('Danke, ich bin satt'); return; }
   G.feed = { d: t, n: (G.feed && G.feed.d === t ? G.feed.n : 0) + 1 }; save();
+  if (gPlaySeed('f')) setTimeout(() => { gLabel(gs.duck.x, gs.duck.y + 14, '+1 Samen'); }, 150);
   const d = gs.duck; gs.food = [];
   for (let k = 0; k < 6; k++) { let x, y, n = 0; do { x = d.x + (Math.random() - .5) * 70; y = clamp(d.y + (Math.random() - .5) * 40, 176, 404); n++; } while (n < 30 && (inPond(x, y) || x < 20 || x > 340)); gs.food.push({ x: Math.round(x), y: Math.round(y), c: k % 2 ? '#8FAE6E' : '#E6D3A8' }); }
   gs.foodV++; if (gs.duck.mode === 'rest' || gs.duck.mode === 'swimrest') gs.duck.mode = 'idle';
@@ -3629,7 +3676,7 @@ function makeDemo() {
     { id: 'cd2', date: ago(4), situation: 'Eine Freundin hat seit drei Tagen nicht auf meine Nachricht geantwortet.', feel: [{ f: 'traurig', before: 60, after: 30 }], body: '', thought: 'Sie hat keine Lust mehr auf mich.', dist: ['lesen', 'kat'], pro: 'Sie antwortet sonst schneller.', contra: 'Sie hat erzählt, dass sie gerade viel Stress hat.', balanced: 'Wahrscheinlich hat sie gerade einfach viel um die Ohren. Ich kann nachfragen, wie es ihr geht.' }
   ];
   const about = { staerken: 'Zuhören und Dinge geduldig erklären', werte: 'Ehrlichkeit, Familie, Zeit für mich', energie: 'Spaziergänge, Musik, gute Gespräche', hilft: 'Rausgehen, eine Freundin anrufen und mir nicht zu viel vornehmen', satz: 'Es ist okay, heute langsam zu sein.' };
-  return { days, health, kraft: { worries, letters, who5, stime: '18:00', cbt, about, habits: [], walks: walksD, walkStart: null, garden: { items: [{ t: 'daisy', x: 150, y: 200 }, { t: 'tulip', x: 168, y: 208 }, { t: 'bush', x: 104, y: 180 }, { t: 'lily', x: 280, y: 212 }, { t: 'stone', x: 206, y: 238 }, { t: 'lantern', x: 196, y: 182 }, { t: 'house', x: 300, y: 178 }, { t: 'birdbath', x: 236, y: 178 }, { t: 'sunflower', x: 126, y: 214, p: Date.now() - 3.1 * 864e5 }, { t: 'tulip', x: 186, y: 206, p: Date.now() - .5 * 864e5 }], spent: 300, petLock: 0, owned: ['straw'], wear: { head: 'straw' }, friends: ['snail'], paused: [], feed: null } } };
+  return { days, health, kraft: { worries, letters, who5, stime: '18:00', cbt, about, habits: [], walks: walksD, walkStart: null, garden: { items: [{ t: 'daisy', x: 150, y: 200 }, { t: 'tulip', x: 168, y: 208 }, { t: 'bush', x: 104, y: 180 }, { t: 'lily', x: 280, y: 212 }, { t: 'stone', x: 206, y: 238 }, { t: 'lantern', x: 196, y: 182 }, { t: 'house', x: 300, y: 178 }, { t: 'birdbath', x: 236, y: 178 }, { t: 'sunflower', x: 126, y: 214, p: Date.now() - 3.1 * 864e5 }, { t: 'tulip', x: 186, y: 206, p: Date.now() - .5 * 864e5 }], spent: 250, petLock: 0, owned: ['straw'], wear: { head: 'straw' }, friends: ['snail'], paused: [], feed: null } } };
 }
 function loadDemo() {
   if (Object.keys(DB.days).length && !DB.settings.demo && !confirm('Beispieldaten ersetzen deine aktuellen Einträge. Fortfahren? Exportiere vorher eine Sicherung, falls du sie behalten möchtest.')) return;
