@@ -379,6 +379,10 @@ details.more>summary::-webkit-details-marker{display:none}details.more[open]>sum
 input[type=date].inp{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;max-width:100%;min-height:46px;line-height:1.3;text-align:left}
 input[type=date].inp::-webkit-date-and-time-value{text-align:left;margin:0}
 input[type=date].inp::-webkit-calendar-picker-indicator{margin-left:auto}
+.lvbar{display:inline-flex;gap:3px;vertical-align:middle}
+.lvbar i{width:16px;height:7px;border-radius:4px;background:var(--sand)}
+.lvbar i.f{background:var(--olive3)}
+.lvrow{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:240px}
 </style>
 </head>
 <body>
@@ -835,15 +839,17 @@ function checkinCard(t, d) {
   }
   return `<div class="card"><div class="between"><h3 style="margin:0">Dein Tag</h3><button class="link" data-a="log" data-v="${t}">Bearbeiten</button></div>${summaryHTML(d, true)}</div>`;
 }
+// Stufe 1 bis 5 als kleine Balken statt Zahl
+const lvBar = v => `<span class="lvbar" role="img" aria-label="${v} von 5">${[1, 2, 3, 4, 5].map(j => `<i class="${j <= v ? 'f' : ''}"></i>`).join('')}</span>`;
 function summaryHTML(d, compact) {
   const rows = [];
   if (d.mood) rows.push(`<div class="row" style="gap:10px">${face(d.mood, 30)}<div><div style="font-weight:500">${MOODS[d.mood]}</div>${d.feel && d.feel.length ? `<div class="muted" style="font-size:13px">${d.feel.map(f => FEEL[f] ? FEEL[f].l : f).join(', ')}</div>` : ''}</div></div>`);
   const lv = [];
   if (d.flow) lv.push(`Blutung: ${FLOW[d.flow - 1].l.replace('­', '')}`);
-  if (d.energy) lv.push(`Energie ${d.energy} von 5`);
-  if (d.stress) lv.push(`Stress ${d.stress} von 5`);
-  if (d.anxiety) lv.push(`Unruhe ${d.anxiety} von 5`);
-  if (lv.length) rows.push(`<div style="font-size:13.5px;color:var(--ink2)">${lv.join('<br>')}</div>`);
+  if (d.energy) lv.push(`<span class="lvrow"><span>Energie</span>${lvBar(d.energy)}</span>`);
+  if (d.stress) lv.push(`<span class="lvrow"><span>Stress</span>${lvBar(d.stress)}</span>`);
+  if (d.anxiety) lv.push(`<span class="lvrow"><span>Unruhe</span>${lvBar(d.anxiety)}</span>`);
+  if (lv.length) rows.push(`<div style="font-size:13.5px;color:var(--ink2);display:flex;flex-direction:column;gap:6px">${lv.join('')}</div>`);
   if (d.sym) rows.push(`<div class="chips">${Object.entries(d.sym).map(([k, v]) => `<span class="chip" style="padding:5px 10px;font-size:13px">${esc(symLabel(k))}<span class="lv">${[1, 2, 3].map(j => `<i class="${j <= v ? 'f' : ''}"></i>`).join('')}</span></span>`).join('')}</div>`);
   if (d.tags) rows.push(`<div style="font-size:13px;color:var(--ink2)">${d.tags.map(tagLabel).map(esc).join(', ')}${d.water ? `, ${d.water} Gläser Wasser` : ''}</div>`);
   const fx = [];
@@ -1029,6 +1035,38 @@ function openDay(iso) {
   showSheet(html);
 }
 
+// ---------- Eintrag lesen (aus dem Tagebuch), Bearbeiten oben
+const anyEntry = d => !!d && Object.keys(d).some(k => k !== 'hf' && d[k] != null && d[k] !== '' && !(Array.isArray(d[k]) && !d[k].length) && !(typeof d[k] === 'object' && !Array.isArray(d[k]) && !Object.keys(d[k]).length));
+function viewDay(iso) {
+  const d = DB.days[iso] || {}, i = info(iso), H = DB.health[iso];
+  const sec = (title, body) => body ? `<div class="card"><div class="eyebrow" style="margin-bottom:10px">${title}</div>${body}</div>` : '';
+  let h = `<div class="grab"></div><div class="sheet-head"><div class="t"><div class="serif">${dLong(iso)}</div><div class="muted">${i ? `Zyklustag ${i.cd}, ${PH[i.phase].n}` : ''}</div></div>
+    <button class="btn sm dark" data-a="viewEdit" data-v="${iso}">Bearbeiten</button><button class="iconbtn sm" data-a="closeSheet" aria-label="Schließen">${ic('close')}</button></div>`;
+  if (d.mood) h += `<div class="card"><div class="row" style="gap:14px">${face(d.mood, 44)}<div><div class="serif" style="font-size:22px">${esc(MOODS[d.mood])}</div>${d.feel && d.feel.length ? `<div class="muted" style="font-size:14px;margin-top:2px">${d.feel.map(f => esc(FEEL[f] ? FEEL[f].l : f)).join(', ')}</div>` : ''}</div></div></div>`;
+  else if (d.feel && d.feel.length) h += sec('Gefühle', `<p style="margin:0">${d.feel.map(f => esc(FEEL[f] ? FEEL[f].l : f)).join(', ')}</p>`);
+  if (d.pAns) h += sec('Tagebuch', `<p class="serif" style="font-size:18px;color:var(--ink2);margin:0 0 8px">${esc(d.prompt || '')}</p><p style="margin:0;white-space:pre-wrap;line-height:1.55">${esc(d.pAns)}</p>`);
+  if (d.note) h += sec(d.pAns ? 'Notiz' : 'Tagebuch', `<p style="margin:0;white-space:pre-wrap;line-height:1.55">${esc(d.note)}</p>`);
+  if (d.grat) h += sec('Dankbar für', `<p style="margin:0;white-space:pre-wrap">${esc(d.grat)}</p>`);
+  if (d.proud || d.intent) h += sec('Für dich', `${d.intent ? `<p style="margin:0 0 6px"><span class="muted">Absicht:</span> ${esc(d.intent)}${d.intentDone ? ', erledigt' : ''}</p>` : ''}${d.proud ? `<p style="margin:0"><span class="muted">Stolz auf:</span> ${esc(d.proud)}</p>` : ''}`);
+  const lv = [];
+  if (d.flow) lv.push(['Blutung', `<span style="display:inline-flex;align-items:center;gap:8px">${FLOW[d.flow - 1].l.replace(/\u00AD/g, '')}<span style="color:var(--men);display:inline-flex">${drops(d.flow).replace('height:22px', 'height:16px')}</span></span>`]);
+  if (d.energy) lv.push(['Energie', lvBar(d.energy)]);
+  if (d.stress) lv.push(['Stress', lvBar(d.stress)]);
+  if (d.anxiety) lv.push(['Angst und Unruhe', lvBar(d.anxiety)]);
+  if (d.sym && Object.keys(d.sym).length) lv.push(['Körper', `<div class="chips" style="justify-content:flex-end">${Object.entries(d.sym).map(([k, v]) => `<span class="chip" style="padding:5px 10px;font-size:13px">${esc(symLabel(k))}<span class="lv">${[1, 2, 3].map(j => `<i class="${j <= v ? 'f' : ''}"></i>`).join('')}</span></span>`).join('')}</div>`]);
+  if (lv.length) h += sec('Körper und Befinden', lv.map(([a, b]) => `<div class="between" style="gap:12px;padding:6px 0;align-items:flex-start"><span class="muted" style="flex:none">${a}</span><span style="text-align:right">${b}</span></div>`).join(''));
+  if ((d.tags && d.tags.length) || d.water) h += sec('Einflüsse', `<p style="margin:0">${(d.tags || []).map(tagLabel).map(esc).concat(d.water ? [`${d.water} Gläser Wasser`] : []).join(', ')}</p>`);
+  const fx = [];
+  if (d.bbt) fx.push(`Basaltemperatur ${num(+d.bbt, 2)} °C`);
+  if (d.ovt) fx.push(`Ovulationstest ${d.ovt === 2 ? 'positiv' : 'negativ'}`);
+  if (d.dis) fx.push(`Ausfluss ${(DISCHARGE.find(x => x[0] === d.dis) || ['', ''])[1].toLowerCase()}`);
+  if (d.lib) fx.push(`Libido ${LIBIDO[d.lib - 1][1].toLowerCase()}`);
+  if (d.sex) fx.push((SEX.find(x => x[0] === d.sex) || ['', ''])[1]);
+  if (fx.length) h += sec('Fruchtbarkeit', `<p style="margin:0">${fx.join(', ')}</p>`);
+  if (H && typeof healthSummary === 'function') { const hs = healthSummary(H, true); if (hs) h += sec('Apple Health', `<p style="margin:0">${hs}</p>`); }
+  state.sheet = 'view'; state.viewIso = iso;
+  showSheet(h, true);
+}
 // ---------- Tagebuch
 const hasEntry = d => d && (d.mood || d.note || d.pAns || d.grat);
 function vJournal() {
@@ -1044,7 +1082,7 @@ function vJournal() {
   for (let dd = 1; dd <= dim; dd++) {
     const iso = `${y}-${pad(m)}-${pad(dd)}`, d = DB.days[iso], fut = iso > t;
     if (d && d.mood) moods.push(d.mood);
-    g += `<button class="jd ${iso === t ? 'today' : ''} ${fut ? 'fut' : ''}" ${fut ? 'disabled' : `data-a="log" data-v="${iso}"`}>
+    g += `<button class="jd ${iso === t ? 'today' : ''} ${fut ? 'fut' : ''}" ${fut ? 'disabled' : `data-a="${anyEntry(d) ? 'viewDay' : 'log'}" data-v="${iso}"`}>
       ${d && d.mood ? face(d.mood) : `<svg viewBox="0 0 24 24"><path d="${BEAN}" fill="${fut ? 'none' : '#EBE3D4'}" stroke="${fut ? '#E3DACA' : 'none'}" stroke-width="1"/>${d && (d.note || d.pAns) ? '<path d="M10 12h4" stroke="#948C79" stroke-width="1.4" stroke-linecap="round"/>' : ''}</svg>`}
       <span class="jd-n">${dd}${d && d.flow >= 2 ? '<i></i>' : ''}</span></button>`;
   }
@@ -1084,7 +1122,7 @@ function journalList() {
     const d = DB.days[k], i = info(k), dt = fromISO(k), mk = `${MON[dt.getMonth()]} ${dt.getFullYear()}`;
     if (q && mk !== lastM) { html += `<div class="fs" style="margin:14px 0 8px">${mk}</div>`; lastM = mk; }
     const txt = d.note || d.pAns || '';
-    html += `<button class="jentry" data-a="log" data-v="${k}"><div class="jdate"><div class="n">${dt.getDate()}</div><div class="w">${WDS[dt.getDay()]}</div></div><div class="jbody">
+    html += `<button class="jentry" data-a="viewDay" data-v="${k}"><div class="jdate"><div class="n">${dt.getDate()}</div><div class="w">${WDS[dt.getDay()]}</div></div><div class="jbody">
       <div class="jmeta">${d.mood ? face(d.mood) + `<span style="font-size:13.5px;font-weight:500">${MOODS[d.mood]}</span>` : ''}${i ? `<span class="pill" style="margin-left:auto"><i style="background:${PH[i.phase].c}"></i>${PH[i.phase].s}</span>` : ''}</div>
       ${d.pAns && !d.note ? `<div class="q">${esc(d.prompt || '')}</div>` : ''}${txt ? `<div class="txt">${esc(txt)}</div>` : ''}
       ${d.grat ? `<div class="jfeel">Dankbar für: ${esc(d.grat)}</div>` : ''}
@@ -3831,6 +3869,8 @@ document.addEventListener('click', e => {
     case 'tag': upd(iso, d => { d.tags = d.tags || []; d.tags = d.tags.includes(v) ? d.tags.filter(x => x !== v) : d.tags.concat(v); }); refreshAfterLog(); break;
     case 'water': upd(iso, d => d.water = clamp((d.water || 0) + +v, 0, 20)); refreshAfterLog(); break;
     case 'dis': case 'lib': case 'sex': case 'ovt': { const val = a === 'lib' || a === 'ovt' ? +v : v; upd(iso, d => d[a] = d[a] === val ? 0 : val); refreshAfterLog(); break; }
+    case 'viewDay': viewDay(v); break;
+    case 'viewEdit': { state.onClose = () => { const day = state.log || v; setTimeout(() => { if (!state.sheet && anyEntry(DB.days[day])) viewDay(day); }, 340); }; openLog(v); break; }
     case 'nextPrompt': state.pOff++; renderLog(); break;
     case 'delDay': if (confirm('Alle Angaben für diesen Tag löschen?')) { delete DB.days[iso]; save(); refreshAfterLog(); toast('Gelöscht'); } break;
     case 'setFlow': upd(v, d => d.flow = +el.dataset.f); closeSheet(); toast(+el.dataset.f ? 'Periode eingetragen' : 'Blutung entfernt'); break;
